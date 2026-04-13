@@ -7,7 +7,6 @@ services:
     env_file:
       - .env
     volumes:
-      - ./app:/app/app
       - ./output:/app/output
       - ./sample:/app/sample
       # Optional: enable docker exec for validate/reload.
