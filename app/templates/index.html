@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>caddy-translator</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <p class="eyebrow">Internal homelab utility</p>
+            <h1>caddy-translator</h1>
+            <p class="lede">Drop in a CSV, preview the generated Caddyfile, and optionally deploy it into a live Caddy setup.</p>
+        </section>
+
+        <section class="grid">
+            <article class="panel">
+                <h2>Upload CSV</h2>
+                <form action="/translate/upload" method="post" enctype="multipart/form-data">
+                    <label class="field">
+                        <span>CSV file</span>
+                        <input type="file" name="csv_file" accept=".csv,text/csv" required>
+                    </label>
+
+                    <label class="check">
+                        <input type="checkbox" name="deploy" value="true">
+                        <span>Deploy automatically when allowed</span>
+                    </label>
+
+                    <label class="check">
+                        <input type="checkbox" name="preview_only" value="true">
+                        <span>Preview only</span>
+                    </label>
+
+                    <button type="submit">Translate Upload</button>
+                </form>
+            </article>
+
+            <article class="panel">
+                <h2>Paste URL</h2>
+                <form action="/translate/url" method="post">
+                    <label class="field">
+                        <span>CSV or Google Sheets URL</span>
+                        <input type="url" name="url" placeholder="https://docs.google.com/..." required>
+                    </label>
+
+                    <label class="check">
+                        <input type="checkbox" name="deploy" value="true">
+                        <span>Deploy automatically when allowed</span>
+                    </label>
+
+                    <label class="check">
+                        <input type="checkbox" name="preview_only" value="true">
+                        <span>Preview only</span>
+                    </label>
+
+                    <button type="submit">Translate URL</button>
+                </form>
+            </article>
+        </section>
+
+        <section class="panel">
+            <h2>Sample CSV Format</h2>
+            <pre>{{ sample_csv }}</pre>
+        </section>
+
+        <section class="panel">
+            <h2>Generated Output Preview</h2>
+            {% if latest_preview %}
+            <pre>{{ latest_preview }}</pre>
+            {% else %}
+            <p class="muted">No generated Caddyfile yet.</p>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

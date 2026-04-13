@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pandas
+jinja2
+python-multipart
+requests
+pydantic-settings
+pytest
+httpx

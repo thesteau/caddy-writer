@@ -1,0 +1,7 @@
+host,upstream,tls_mode,skip_verify,enabled,notes
+nvr.home,http://192.168.5.2,internal,false,true,NVR
+duo3.home,http://192.168.5.15,internal,false,true,Printer
+nas.home,https://192.168.1.2:5001,internal,true,true,Synology
+base.home,http://192.168.1.4:7575,internal,false,true,Base app
+ha.home,http://192.168.1.5:8123,internal,false,true,Home Assistant
+portainer.home,https://192.168.1.5:9443,internal,true,true,Portainer

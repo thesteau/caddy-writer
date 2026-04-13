@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>caddy-translator result</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <p class="eyebrow">Translation status</p>
+            <h1>caddy-translator</h1>
+            <p class="lede"><a href="/">Back to input form</a></p>
+        </section>
+
+        {% if error_message %}
+        <section class="panel panel-error">
+            <h2>Error</h2>
+            <p>{{ error_message }}</p>
+            {% if error_details %}
+            <ul>
+                {% for item in error_details %}
+                <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </section>
+        {% endif %}
+
+        {% if result %}
+        <section class="grid">
+            <article class="panel">
+                <h2>Summary</h2>
+                <dl class="stats">
+                    <div><dt>Source</dt><dd>{{ result.source_name }}</dd></div>
+                    <div><dt>Parsed rows</dt><dd>{{ result.parsed_row_count }}</dd></div>
+                    <div><dt>Generated rows</dt><dd>{{ result.generated_row_count }}</dd></div>
+                    <div><dt>Skipped rows</dt><dd>{{ result.skipped_row_count }}</dd></div>
+                    <div><dt>Generated file</dt><dd>{{ result.generated_file_path }}</dd></div>
+                    <div><dt>Deploy requested</dt><dd>{{ result.deploy_requested }}</dd></div>
+                    <div><dt>Deploy attempted</dt><dd>{{ result.deploy_attempted }}</dd></div>
+                </dl>
+
+                {% if result.warnings %}
+                <h3>Warnings</h3>
+                <ul>
+                    {% for item in result.warnings %}
+                    <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </article>
+
+            <article class="panel">
+                <h2>Deployment Status</h2>
+                {% if result.deploy_result %}
+                <p>{{ result.deploy_result.message }}</p>
+                <dl class="stats">
+                    <div><dt>Copied</dt><dd>{{ result.deploy_result.copied }}</dd></div>
+                    <div><dt>Succeeded</dt><dd>{{ result.deploy_result.succeeded }}</dd></div>
+                    <div><dt>Target</dt><dd>{{ result.deploy_result.target_path }}</dd></div>
+                    <div><dt>Backup</dt><dd>{{ result.deploy_result.backup_path or "n/a" }}</dd></div>
+                </dl>
+                {% else %}
+                <p class="muted">No deployment step was run.</p>
+                {% endif %}
+            </article>
+        </section>
+
+        <section class="panel">
+            <h2>Generated Caddyfile</h2>
+            <pre>{{ result.generated_text }}</pre>
+        </section>
+
+        {% if result.deploy_result %}
+        <section class="grid">
+            <article class="panel">
+                <h2>Availability Check</h2>
+                {% if result.deploy_result.availability_result %}
+                <pre>stdout:
+{{ result.deploy_result.availability_result.stdout or "(empty)" }}
+
+stderr:
+{{ result.deploy_result.availability_result.stderr or "(empty)" }}</pre>
+                {% else %}
+                <p class="muted">No availability check output.</p>
+                {% endif %}
+            </article>
+
+            <article class="panel">
+                <h2>Copy Step</h2>
+                {% if result.deploy_result.copy_result %}
+                <pre>stdout:
+{{ result.deploy_result.copy_result.stdout or "(empty)" }}
+
+stderr:
+{{ result.deploy_result.copy_result.stderr or "(empty)" }}</pre>
+                {% else %}
+                <p class="muted">No copy output.</p>
+                {% endif %}
+            </article>
+
+            <article class="panel">
+                <h2>Validation Step</h2>
+                {% if result.deploy_result.validate_result %}
+                <pre>stdout:
+{{ result.deploy_result.validate_result.stdout or "(empty)" }}
+
+stderr:
+{{ result.deploy_result.validate_result.stderr or "(empty)" }}</pre>
+                {% else %}
+                <p class="muted">Validation was not run.</p>
+                {% endif %}
+            </article>
+
+            <article class="panel">
+                <h2>Reload Step</h2>
+                {% if result.deploy_result.reload_result %}
+                <pre>stdout:
+{{ result.deploy_result.reload_result.stdout or "(empty)" }}
+
+stderr:
+{{ result.deploy_result.reload_result.stderr or "(empty)" }}</pre>
+                {% else %}
+                <p class="muted">Reload was not run.</p>
+                {% endif %}
+            </article>
+        </section>
+        {% endif %}
+        {% endif %}
+    </main>
+</body>
+</html>

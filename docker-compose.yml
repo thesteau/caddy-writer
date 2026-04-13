@@ -1,0 +1,17 @@
+services:
+  caddy-translator:
+    build: .
+    container_name: caddy-translator
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+      - ./output:/app/output
+      - ./sample:/app/sample
+      # Optional: enable docker exec for validate/reload.
+      # - /var/run/docker.sock:/var/run/docker.sock
+      # Optional: mount the real Caddy directory here.
+      # - /path/to/real/caddy/dir:/deploy-target
+    restart: unless-stopped
