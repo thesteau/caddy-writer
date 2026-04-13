@@ -1,6 +1,6 @@
-# caddy-translator
+# caddy-writer
 
-`caddy-translator` is a small Dockerized FastAPI utility for trusted internal homelab use. It accepts a CSV upload or URL, parses the rows with pandas, renders a Caddyfile preview, writes the generated output to `/app/output/Caddyfile.generated`, and can optionally deploy that file into a real Caddy target path.
+`caddy-writer` is a small Dockerized FastAPI utility for trusted internal homelab use. It accepts a CSV upload or URL, parses the rows with pandas, renders a Caddyfile preview, writes the generated output to `/app/output/Caddyfile.generated`, and can optionally deploy that file into a real Caddy target path.
 
 ## Features
 
@@ -16,7 +16,7 @@
 ## Project layout
 
 ```text
-caddy-translator/
+caddy-writer/
 ├── app/
 │   ├── main.py
 │   ├── translator.py

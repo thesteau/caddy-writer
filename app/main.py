@@ -17,7 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-app = FastAPI(title="caddy-translator")
+app = FastAPI(title="caddy-writer")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
