@@ -1,14 +1,31 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS builder
+
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /build
+
+RUN python -m venv "$VIRTUAL_ENV"
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+
+FROM docker:cli AS docker-cli
+
+
+FROM python:3.12-slim AS runtime
+
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY app ./app
 COPY sample ./sample
 COPY scripts ./scripts
