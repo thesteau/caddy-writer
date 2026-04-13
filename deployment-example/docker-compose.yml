@@ -1,9 +1,9 @@
 services:
   caddy-translator:
-    build: .
+    image: ghcr.io/thesteau/caddy-writer:latest
     container_name: caddy-translator
     ports:
-      - "8000:8000"
+      - "7661:8000"
     env_file:
       - .env
     volumes:
