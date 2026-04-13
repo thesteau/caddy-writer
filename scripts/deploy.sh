@@ -16,8 +16,12 @@ if [ ! -f "$TARGET_PATH" ]; then
   exit 1
 fi
 
-cp "$TARGET_PATH" "$TARGET_PATH.$(date +%Y%m%d%H%M%S).bak"
+BACKUP_PATH="$TARGET_PATH.$(date +%Y%m%d%H%M%S).bak"
+
+cp "$TARGET_PATH" "$BACKUP_PATH"
 cp "$SOURCE_PATH" "$TARGET_PATH"
 
 docker exec "$CONTAINER_NAME" caddy validate --config "$CONFIG_PATH" --adapter caddyfile
 docker exec "$CONTAINER_NAME" caddy reload --config "$CONFIG_PATH" --adapter caddyfile
+
+rm -f "$BACKUP_PATH"

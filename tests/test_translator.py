@@ -173,3 +173,41 @@ def test_reload_blocked_when_validation_fails(work_tmpdir: Path, monkeypatch) ->
     assert result.validate_result is not None
     assert result.validate_result.stderr == "validation failed"
     assert calls["reload"] == 0
+
+
+def test_backup_removed_when_reload_succeeds(work_tmpdir: Path, monkeypatch) -> None:
+    generated = work_tmpdir / "Caddyfile.generated"
+    target = work_tmpdir / "Caddyfile"
+    generated.write_text("example.home {\n    respond \"ok\"\n}\n", encoding="utf-8")
+    target.write_text("old", encoding="utf-8")
+    settings = Settings(
+        output_dir=work_tmpdir / "output",
+        temp_dir=work_tmpdir / "tmp",
+        caddy_target_file=target,
+        docker_socket_enabled=True,
+    )
+
+    monkeypatch.setattr(
+        deploy,
+        "ensure_caddy_container_running",
+        lambda settings=None: CommandResult(attempted=True, succeeded=True, stdout="true"),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "validate_caddy",
+        lambda settings=None: CommandResult(attempted=True, succeeded=True, stdout="valid"),
+    )
+    monkeypatch.setattr(
+        deploy,
+        "reload_caddy",
+        lambda settings=None: CommandResult(attempted=True, succeeded=True, stdout="reloaded"),
+    )
+
+    result = deploy.deploy_generated_file(generated, settings=settings)
+
+    assert result.succeeded
+    assert result.backup_path is None
+    assert result.reload_result is not None
+    assert "Removed backup file" in result.reload_result.stdout
+    backup_files = list(work_tmpdir.glob("Caddyfile.*.bak"))
+    assert backup_files == []

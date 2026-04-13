@@ -51,6 +51,25 @@ def copy_to_target(src: str | Path, dst: str | Path) -> CommandResult:
     )
 
 
+def cleanup_backup(path: str | Path) -> CommandResult:
+    backup_path = Path(path)
+    if not backup_path.exists():
+        return CommandResult(
+            command=f"remove {backup_path}",
+            attempted=True,
+            succeeded=False,
+            stderr="Backup file does not exist.",
+        )
+
+    backup_path.unlink()
+    return CommandResult(
+        command=f"remove {backup_path}",
+        attempted=True,
+        succeeded=True,
+        stdout=f"Removed backup file {backup_path}.",
+    )
+
+
 def validate_caddy(settings: Settings | None = None) -> CommandResult:
     app_settings = settings or get_settings()
     return _run_command(
@@ -179,6 +198,20 @@ def deploy_generated_file(path: str | Path, settings: Settings | None = None) ->
     if not reload_result.succeeded:
         result.message = "Caddy reload failed."
         return result
+
+    if result.backup_path:
+        cleanup_result = cleanup_backup(result.backup_path)
+        if cleanup_result.succeeded:
+            result.backup_path = None
+            if reload_result.stdout:
+                reload_result.stdout = f"{reload_result.stdout}\n{cleanup_result.stdout}"
+            else:
+                reload_result.stdout = cleanup_result.stdout
+        else:
+            if reload_result.stderr:
+                reload_result.stderr = f"{reload_result.stderr}\n{cleanup_result.stderr}"
+            else:
+                reload_result.stderr = cleanup_result.stderr
 
     result.succeeded = True
     result.message = "Deployment, validation, and reload succeeded."
