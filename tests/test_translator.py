@@ -138,5 +138,5 @@ def test_copy_generated_file_to_caddy_dir(work_tmpdir) -> None:
 
     copied_path = deploy.copy_generated_file_to_caddy_dir(source_path, settings=settings)
 
-    assert copied_path.endswith("Caddyfile.generated")
-    assert (work_tmpdir / "deploy-target" / "Caddyfile.generated").read_text(encoding="utf-8") == "example.home {\n}\n"
+    assert copied_path.endswith("Caddyfile")
+    assert (work_tmpdir / "deploy-target" / "Caddyfile").read_text(encoding="utf-8") == "example.home {\n}\n"
