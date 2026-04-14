@@ -38,8 +38,6 @@
                     <div><dt>Generated rows</dt><dd>{{ result.generated_row_count }}</dd></div>
                     <div><dt>Skipped rows</dt><dd>{{ result.skipped_row_count }}</dd></div>
                     <div><dt>Generated file</dt><dd>{{ result.generated_file_path }}</dd></div>
-                    <div><dt>Deploy requested</dt><dd>{{ result.deploy_requested }}</dd></div>
-                    <div><dt>Deploy attempted</dt><dd>{{ result.deploy_attempted }}</dd></div>
                 </dl>
 
                 {% if result.warnings %}
@@ -53,18 +51,12 @@
             </article>
 
             <article class="panel">
-                <h2>Deployment Status</h2>
-                {% if result.deploy_result %}
-                <p>{{ result.deploy_result.message }}</p>
+                <h2>Caddy Directory Copy</h2>
+                <p>{{ result.caddy_copy_message }}</p>
                 <dl class="stats">
-                    <div><dt>Copied</dt><dd>{{ result.deploy_result.copied }}</dd></div>
-                    <div><dt>Succeeded</dt><dd>{{ result.deploy_result.succeeded }}</dd></div>
-                    <div><dt>Target</dt><dd>{{ result.deploy_result.target_path }}</dd></div>
-                    <div><dt>Backup</dt><dd>{{ result.deploy_result.backup_path or "n/a" }}</dd></div>
+                    <div><dt>Copied</dt><dd>{{ result.copied_to_caddy_dir }}</dd></div>
+                    <div><dt>Caddy file</dt><dd>{{ result.caddy_generated_file_path or "n/a" }}</dd></div>
                 </dl>
-                {% else %}
-                <p class="muted">No deployment step was run.</p>
-                {% endif %}
             </article>
         </section>
 
@@ -72,62 +64,6 @@
             <h2>Generated Caddyfile</h2>
             <pre>{{ result.generated_text }}</pre>
         </section>
-
-        {% if result.deploy_result %}
-        <section class="grid">
-            <article class="panel">
-                <h2>Availability Check</h2>
-                {% if result.deploy_result.availability_result %}
-                <pre>stdout:
-{{ result.deploy_result.availability_result.stdout or "(empty)" }}
-
-stderr:
-{{ result.deploy_result.availability_result.stderr or "(empty)" }}</pre>
-                {% else %}
-                <p class="muted">No availability check output.</p>
-                {% endif %}
-            </article>
-
-            <article class="panel">
-                <h2>Copy Step</h2>
-                {% if result.deploy_result.copy_result %}
-                <pre>stdout:
-{{ result.deploy_result.copy_result.stdout or "(empty)" }}
-
-stderr:
-{{ result.deploy_result.copy_result.stderr or "(empty)" }}</pre>
-                {% else %}
-                <p class="muted">No copy output.</p>
-                {% endif %}
-            </article>
-
-            <article class="panel">
-                <h2>Validation Step</h2>
-                {% if result.deploy_result.validate_result %}
-                <pre>stdout:
-{{ result.deploy_result.validate_result.stdout or "(empty)" }}
-
-stderr:
-{{ result.deploy_result.validate_result.stderr or "(empty)" }}</pre>
-                {% else %}
-                <p class="muted">Validation was not run.</p>
-                {% endif %}
-            </article>
-
-            <article class="panel">
-                <h2>Reload Step</h2>
-                {% if result.deploy_result.reload_result %}
-                <pre>stdout:
-{{ result.deploy_result.reload_result.stdout or "(empty)" }}
-
-stderr:
-{{ result.deploy_result.reload_result.stderr or "(empty)" }}</pre>
-                {% else %}
-                <p class="muted">Reload was not run.</p>
-                {% endif %}
-            </article>
-        </section>
-        {% endif %}
         {% endif %}
     </main>
 </body>

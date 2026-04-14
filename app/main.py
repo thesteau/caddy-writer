@@ -38,7 +38,6 @@ async def index(request: Request, settings: Settings = Depends(get_settings)) ->
 async def translate_upload(
     request: Request,
     csv_file: UploadFile = File(...),
-    deploy_requested: bool = Form(False, alias="deploy"),
     preview_only: bool = Form(False),
     settings: Settings = Depends(get_settings),
 ) -> Response:
@@ -48,7 +47,6 @@ async def translate_upload(
             dataframe=dataframe,
             source_type="upload",
             source_name=csv_file.filename or "upload.csv",
-            deploy_requested=deploy_requested,
             preview_only=preview_only,
             settings=settings,
         )
@@ -72,7 +70,6 @@ async def translate_url(
             dataframe=dataframe,
             source_type="url",
             source_name=payload.url,
-            deploy_requested=payload.deploy,
             preview_only=payload.preview_only,
             settings=settings,
         )
@@ -96,17 +93,39 @@ async def preview_latest(settings: Settings = Depends(get_settings)) -> PlainTex
 
 @app.post("/deploy/latest")
 async def deploy_latest(settings: Settings = Depends(get_settings)) -> JSONResponse:
-    latest_file = settings.output_dir / "Caddyfile.generated"
-    result = deploy.deploy_generated_file(latest_file, settings=settings)
-    status_code = 200 if result.succeeded else 400
-    return JSONResponse(status_code=status_code, content=result.model_dump(mode="json"))
+    try:
+        generated_file_path, generated_text = deploy.read_generated_file(settings=settings)
+        caddy_generated_file_path = deploy.copy_generated_file_to_caddy_dir(
+            generated_file_path,
+            settings=settings,
+        )
+    except FileNotFoundError as exc:
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "error": str(exc)},
+        )
+    except NotADirectoryError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "error": str(exc)},
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "ok",
+            "generated_file_path": generated_file_path,
+            "generated_text": generated_text,
+            "caddy_generated_file_path": caddy_generated_file_path,
+            "message": "Copied the latest generated file into the mounted Caddy directory.",
+        },
+    )
 
 
 def _build_translation_response(
     dataframe,
     source_type: str,
     source_name: str,
-    deploy_requested: bool,
     preview_only: bool,
     settings: Settings,
 ) -> TranslationResponse:
@@ -115,18 +134,22 @@ def _build_translation_response(
     generated_file_path = deploy.write_generated_file(generated_text, settings=settings)
 
     warnings = list(prepared.warnings)
-    deploy_result = None
-    deploy_attempted = False
-
-    if preview_only and deploy_requested:
-        warnings.append("Preview-only mode is enabled, so deployment was skipped.")
-    elif deploy_requested and settings.auto_deploy:
-        deploy_result = deploy.deploy_generated_file(generated_file_path, settings=settings)
-        deploy_attempted = deploy_result.attempted
-    elif deploy_requested and not settings.auto_deploy:
-        warnings.append(
-            "Deployment was requested, but AUTO_DEPLOY is disabled. Use POST /deploy/latest for a manual deploy."
-        )
+    copied_to_caddy_dir = False
+    caddy_generated_file_path = None
+    caddy_copy_message = "Skipped copying into the mounted Caddy directory."
+    if preview_only:
+        warnings.append("Preview-only mode is enabled. The generated file was not copied into the Caddy directory.")
+    else:
+        try:
+            caddy_generated_file_path = deploy.copy_generated_file_to_caddy_dir(
+                generated_file_path,
+                settings=settings,
+            )
+            copied_to_caddy_dir = True
+            caddy_copy_message = "Copied the generated file into the mounted Caddy directory."
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            warnings.append(str(exc))
+            caddy_copy_message = "Could not copy the generated file into the mounted Caddy directory."
 
     return TranslationResponse(
         source_type=source_type,
@@ -137,10 +160,10 @@ def _build_translation_response(
         warnings=warnings,
         generated_file_path=generated_file_path,
         generated_text=generated_text,
-        deploy_requested=deploy_requested,
-        deploy_attempted=deploy_attempted,
         preview_only=preview_only,
-        deploy_result=deploy_result,
+        copied_to_caddy_dir=copied_to_caddy_dir,
+        caddy_generated_file_path=caddy_generated_file_path,
+        caddy_copy_message=caddy_copy_message,
     )
 
 
@@ -153,7 +176,6 @@ async def _parse_url_payload(request: Request) -> UrlTranslateRequest:
     form = await request.form()
     payload = {
         "url": form.get("url", ""),
-        "deploy": form.get("deploy", False),
         "preview_only": form.get("preview_only", False),
     }
     return UrlTranslateRequest.model_validate(payload)

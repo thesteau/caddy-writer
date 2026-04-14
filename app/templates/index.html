@@ -24,11 +24,6 @@
                     </label>
 
                     <label class="check">
-                        <input type="checkbox" name="deploy" value="true">
-                        <span>Deploy automatically when allowed</span>
-                    </label>
-
-                    <label class="check">
                         <input type="checkbox" name="preview_only" value="true">
                         <span>Preview only</span>
                     </label>
@@ -43,11 +38,6 @@
                     <label class="field">
                         <span>CSV or Google Sheets URL</span>
                         <input type="url" name="url" placeholder="https://docs.google.com/..." required>
-                    </label>
-
-                    <label class="check">
-                        <input type="checkbox" name="deploy" value="true">
-                        <span>Deploy automatically when allowed</span>
                     </label>
 
                     <label class="check">
@@ -72,6 +62,11 @@
             {% else %}
             <p class="muted">No generated Caddyfile yet.</p>
             {% endif %}
+        </section>
+
+        <section class="panel">
+            <h2>Caddy Directory Copy</h2>
+            <p class="muted">By default, generated output is also copied into the mounted Caddy directory as <code>Caddyfile.generated</code>. Use preview-only to skip that secondary copy.</p>
         </section>
     </main>
 </body>

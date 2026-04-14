@@ -13,13 +13,9 @@ class Settings(BaseSettings):
     port: int = 8000
     output_dir: Path = Field(default=Path("/app/output"))
     temp_dir: Path = Field(default=Path("/app/tmp"))
-    auto_deploy: bool = False
     allow_url_fetch: bool = True
-    caddy_target_file: Path = Field(default=Path("/deploy-target/Caddyfile"))
-    caddy_container_name: str = "caddy"
-    caddy_container_config_path: str = "/etc/caddy/Caddyfile"
-    caddy_validate_and_reload: bool = True
-    docker_socket_enabled: bool = False
+    caddy_output_dir: Path = Field(default=Path("/deploy-target"))
+    caddy_output_filename: str = "Caddyfile.generated"
 
     model_config = SettingsConfigDict(
         env_file=".env",

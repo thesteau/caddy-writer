@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 from app import deploy, translator
-from app.models import CommandResult
 from app.settings import Settings
 
 
@@ -115,99 +114,29 @@ def test_url_import_works(monkeypatch) -> None:
     assert dataframe.iloc[0]["host"] == "svc.home"
 
 
-def test_deployment_blocked_when_target_missing(work_tmpdir: Path) -> None:
-    generated = work_tmpdir / "Caddyfile.generated"
-    generated.write_text("example.home {\n    respond \"ok\"\n}\n", encoding="utf-8")
+def test_write_and_read_generated_file(work_tmpdir) -> None:
     settings = Settings(
         output_dir=work_tmpdir / "output",
         temp_dir=work_tmpdir / "tmp",
-        caddy_target_file=work_tmpdir / "missing" / "Caddyfile",
-        docker_socket_enabled=True,
+        caddy_output_dir=work_tmpdir / "deploy-target",
     )
+    generated_path = deploy.write_generated_file("example.home {\n}\n", settings=settings)
+    read_path, generated_text = deploy.read_generated_file(settings=settings)
 
-    result = deploy.deploy_generated_file(generated, settings=settings)
-
-    assert not result.succeeded
-    assert result.copy_result is not None
-    assert "missing" in result.copy_result.stderr.lower()
+    assert generated_path == read_path
+    assert generated_text == "example.home {\n}\n"
 
 
-def test_reload_blocked_when_validation_fails(work_tmpdir: Path, monkeypatch) -> None:
-    generated = work_tmpdir / "Caddyfile.generated"
-    target = work_tmpdir / "Caddyfile"
-    generated.write_text("example.home {\n    respond \"ok\"\n}\n", encoding="utf-8")
-    target.write_text("old", encoding="utf-8")
+def test_copy_generated_file_to_caddy_dir(work_tmpdir) -> None:
     settings = Settings(
         output_dir=work_tmpdir / "output",
         temp_dir=work_tmpdir / "tmp",
-        caddy_target_file=target,
-        docker_socket_enabled=True,
+        caddy_output_dir=work_tmpdir / "deploy-target",
     )
+    settings.caddy_output_dir.mkdir(parents=True, exist_ok=True)
+    source_path = deploy.write_generated_file("example.home {\n}\n", settings=settings)
 
-    monkeypatch.setattr(
-        deploy,
-        "ensure_caddy_container_running",
-        lambda settings=None: CommandResult(attempted=True, succeeded=True, stdout="true"),
-    )
-    monkeypatch.setattr(
-        deploy,
-        "validate_caddy",
-        lambda settings=None: CommandResult(
-            attempted=True,
-            succeeded=False,
-            stderr="validation failed",
-        ),
-    )
+    copied_path = deploy.copy_generated_file_to_caddy_dir(source_path, settings=settings)
 
-    calls = {"reload": 0}
-
-    def fake_reload(settings=None):
-        calls["reload"] += 1
-        return CommandResult(attempted=True, succeeded=True)
-
-    monkeypatch.setattr(deploy, "reload_caddy", fake_reload)
-
-    result = deploy.deploy_generated_file(generated, settings=settings)
-
-    assert not result.succeeded
-    assert result.validate_result is not None
-    assert result.validate_result.stderr == "validation failed"
-    assert calls["reload"] == 0
-
-
-def test_backup_removed_when_reload_succeeds(work_tmpdir: Path, monkeypatch) -> None:
-    generated = work_tmpdir / "Caddyfile.generated"
-    target = work_tmpdir / "Caddyfile"
-    generated.write_text("example.home {\n    respond \"ok\"\n}\n", encoding="utf-8")
-    target.write_text("old", encoding="utf-8")
-    settings = Settings(
-        output_dir=work_tmpdir / "output",
-        temp_dir=work_tmpdir / "tmp",
-        caddy_target_file=target,
-        docker_socket_enabled=True,
-    )
-
-    monkeypatch.setattr(
-        deploy,
-        "ensure_caddy_container_running",
-        lambda settings=None: CommandResult(attempted=True, succeeded=True, stdout="true"),
-    )
-    monkeypatch.setattr(
-        deploy,
-        "validate_caddy",
-        lambda settings=None: CommandResult(attempted=True, succeeded=True, stdout="valid"),
-    )
-    monkeypatch.setattr(
-        deploy,
-        "reload_caddy",
-        lambda settings=None: CommandResult(attempted=True, succeeded=True, stdout="reloaded"),
-    )
-
-    result = deploy.deploy_generated_file(generated, settings=settings)
-
-    assert result.succeeded
-    assert result.backup_path is None
-    assert result.reload_result is not None
-    assert "Removed backup file" in result.reload_result.stdout
-    backup_files = list(work_tmpdir.glob("Caddyfile.*.bak"))
-    assert backup_files == []
+    assert copied_path.endswith("Caddyfile.generated")
+    assert (work_tmpdir / "deploy-target" / "Caddyfile.generated").read_text(encoding="utf-8") == "example.home {\n}\n"

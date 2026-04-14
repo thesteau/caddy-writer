@@ -8,8 +8,6 @@ services:
       - .env
     volumes:
       - ./output:/app/output
-      # Optional: enable docker exec for validate/reload.
-      # - /var/run/docker.sock:/var/run/docker.sock
-      # Optional: mount the real Caddy directory here.
+      # Mount the real Caddy config directory here to receive Caddyfile.generated.
       # - /path/to/real/caddy/dir:/deploy-target
     restart: unless-stopped

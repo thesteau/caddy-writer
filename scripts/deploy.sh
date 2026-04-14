@@ -2,17 +2,19 @@
 set -eu
 
 SOURCE_PATH="${1:-/app/output/Caddyfile.generated}"
-python - "$SOURCE_PATH" <<'PY'
-from __future__ import annotations
+TARGET_DIR="${CADDY_OUTPUT_DIR:-/deploy-target}"
+TARGET_NAME="${CADDY_OUTPUT_FILENAME:-Caddyfile.generated}"
+TARGET_PATH="$TARGET_DIR/$TARGET_NAME"
 
-import json
-import sys
+if [ ! -f "$SOURCE_PATH" ]; then
+  echo "generated file not found: $SOURCE_PATH" >&2
+  exit 1
+fi
 
-from app.deploy import deploy_generated_file
+if [ ! -d "$TARGET_DIR" ]; then
+  echo "caddy output directory not found: $TARGET_DIR" >&2
+  exit 1
+fi
 
-
-source_path = sys.argv[1]
-result = deploy_generated_file(source_path)
-print(json.dumps(result.model_dump(mode="json"), indent=2))
-raise SystemExit(0 if result.succeeded else 1)
-PY
+cp "$SOURCE_PATH" "$TARGET_PATH"
+echo "Copied generated file to: $TARGET_PATH"

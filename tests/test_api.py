@@ -24,10 +24,11 @@ def build_client(tmp_path: Path, **overrides) -> TestClient:
     settings = Settings(
         output_dir=tmp_path / "output",
         temp_dir=tmp_path / "tmp",
-        caddy_target_file=tmp_path / "deploy-target" / "Caddyfile",
+        caddy_output_dir=tmp_path / "deploy-target",
         **overrides,
     )
     settings.ensure_directories()
+    settings.caddy_output_dir.mkdir(parents=True, exist_ok=True)
     main.app.dependency_overrides = {}
     main.app.dependency_overrides[get_settings] = lambda: settings
     client = TestClient(main.app)
@@ -63,7 +64,9 @@ def test_upload_translation_returns_json_and_writes_output(work_tmpdir: Path) ->
     payload = response.json()
     assert payload["generated_row_count"] == 1
     assert "svc.home" in payload["generated_text"]
+    assert payload["copied_to_caddy_dir"] is True
     assert (work_tmpdir / "output" / "Caddyfile.generated").exists()
+    assert (work_tmpdir / "deploy-target" / "Caddyfile.generated").exists()
 
 
 def test_url_translation_works(work_tmpdir: Path, monkeypatch) -> None:
@@ -118,3 +121,18 @@ def test_translate_upload_surfaces_validation_error(work_tmpdir: Path) -> None:
     payload = response.json()
     assert payload["status"] == "error"
     assert payload["details"]
+
+
+def test_deploy_latest_returns_manual_instructions(work_tmpdir: Path) -> None:
+    client = build_client(work_tmpdir)
+    output_file = work_tmpdir / "output" / "Caddyfile.generated"
+    output_file.write_text("manual.home {\n    respond \"ok\"\n}\n", encoding="utf-8")
+
+    response = client.post("/deploy/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert "mounted Caddy directory" in payload["message"]
+    assert "manual.home" in payload["generated_text"]
+    assert payload["caddy_generated_file_path"].endswith("Caddyfile.generated")
