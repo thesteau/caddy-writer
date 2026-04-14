@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+
+import docker
+from docker.errors import APIError, DockerException, NotFound
 
 from app.models import CommandResult, DeployResult
 from app.settings import Settings, get_settings
@@ -72,35 +75,31 @@ def cleanup_backup(path: str | Path) -> CommandResult:
 
 def validate_caddy(settings: Settings | None = None) -> CommandResult:
     app_settings = settings or get_settings()
-    return _run_command(
+    return _run_caddy_exec(
+        app_settings,
         [
-            "docker",
-            "exec",
-            app_settings.caddy_container_name,
             "caddy",
             "validate",
             "--config",
             app_settings.caddy_container_config_path,
             "--adapter",
             "caddyfile",
-        ]
+        ],
     )
 
 
 def reload_caddy(settings: Settings | None = None) -> CommandResult:
     app_settings = settings or get_settings()
-    return _run_command(
+    return _run_caddy_exec(
+        app_settings,
         [
-            "docker",
-            "exec",
-            app_settings.caddy_container_name,
             "caddy",
             "reload",
             "--config",
             app_settings.caddy_container_config_path,
             "--adapter",
             "caddyfile",
-        ]
+        ],
     )
 
 
@@ -109,31 +108,44 @@ def ensure_caddy_container_running(settings: Settings | None = None) -> CommandR
 
     if not app_settings.docker_socket_enabled:
         return CommandResult(
-            command="docker inspect",
+            command=f"docker inspect {app_settings.caddy_container_name}",
             attempted=False,
             succeeded=False,
             skipped_reason="Docker socket support is disabled.",
             stderr="Docker socket unavailable.",
         )
 
-    inspect_result = _run_command(
-        [
-            "docker",
-            "inspect",
-            app_settings.caddy_container_name,
-            "--format",
-            "{{.State.Running}}",
-        ]
-    )
-    if not inspect_result.succeeded:
-        inspect_result.stderr = inspect_result.stderr or "Caddy container not running."
-        return inspect_result
-
-    if inspect_result.stdout.strip().lower() != "true":
-        inspect_result.succeeded = False
-        inspect_result.stderr = inspect_result.stderr or "Caddy container not running."
-
-    return inspect_result
+    command = f"docker inspect {app_settings.caddy_container_name}"
+    try:
+        client = docker.from_env()
+        container = client.containers.get(app_settings.caddy_container_name)
+        container.reload()
+        running = bool(container.attrs.get("State", {}).get("Running"))
+        status = str(container.attrs.get("State", {}).get("Status", "unknown"))
+        stdout = f"running={str(running).lower()} status={status}"
+        return CommandResult(
+            command=command,
+            attempted=True,
+            succeeded=running,
+            stdout=stdout,
+            stderr="" if running else "Caddy container not running.",
+        )
+    except NotFound:
+        return CommandResult(
+            command=command,
+            attempted=True,
+            succeeded=False,
+            stderr="Caddy container not found.",
+        )
+    except DockerException as exc:
+        return CommandResult(
+            command=command,
+            attempted=True,
+            succeeded=False,
+            stderr=f"Docker SDK error: {exc}",
+        )
+    finally:
+        _close_client(locals().get("client"))
 
 
 def deploy_generated_file(path: str | Path, settings: Settings | None = None) -> DeployResult:
@@ -217,35 +229,71 @@ def deploy_generated_file(path: str | Path, settings: Settings | None = None) ->
     result.message = "Deployment, validation, and reload succeeded."
     return result
 
+def _run_caddy_exec(settings: Settings, command: list[str]) -> CommandResult:
+    if not settings.docker_socket_enabled:
+        return CommandResult(
+            command=_format_exec_command(settings.caddy_container_name, command),
+            attempted=False,
+            succeeded=False,
+            skipped_reason="Docker socket support is disabled.",
+            stderr="Docker socket unavailable.",
+        )
 
-def _run_command(command: list[str]) -> CommandResult:
+    full_command = _format_exec_command(settings.caddy_container_name, command)
     try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError as exc:
+        client = docker.from_env()
+        container = client.containers.get(settings.caddy_container_name)
+        exec_result = container.exec_run(command, demux=True)
+        stdout_bytes, stderr_bytes = _normalize_exec_output(exec_result.output)
+        stdout = _decode_bytes(stdout_bytes)
+        stderr = _decode_bytes(stderr_bytes)
         return CommandResult(
-            command=" ".join(command),
+            command=full_command,
+            attempted=True,
+            succeeded=exec_result.exit_code == 0,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=exec_result.exit_code,
+        )
+    except NotFound:
+        return CommandResult(
+            command=full_command,
             attempted=True,
             succeeded=False,
-            stderr=f"Command unavailable: {exc}",
+            stderr="Caddy container not found.",
         )
-    except Exception as exc:
+    except (APIError, DockerException) as exc:
         return CommandResult(
-            command=" ".join(command),
+            command=full_command,
             attempted=True,
             succeeded=False,
-            stderr=str(exc),
+            stderr=f"Docker SDK error: {exc}",
         )
+    finally:
+        _close_client(locals().get("client"))
 
-    return CommandResult(
-        command=" ".join(command),
-        attempted=True,
-        succeeded=completed.returncode == 0,
-        stdout=completed.stdout.strip(),
-        stderr=completed.stderr.strip(),
-        returncode=completed.returncode,
-    )
+
+def _format_exec_command(container_name: str, command: list[str]) -> str:
+    return f"docker exec {container_name} {' '.join(command)}"
+
+
+def _normalize_exec_output(output: Any) -> tuple[bytes | None, bytes | None]:
+    if isinstance(output, tuple):
+        stdout_bytes, stderr_bytes = output
+        return stdout_bytes, stderr_bytes
+    return output, None
+
+
+def _decode_bytes(value: bytes | None) -> str:
+    if not value:
+        return ""
+    return value.decode("utf-8", errors="replace").strip()
+
+
+def _close_client(client: Any) -> None:
+    if client is None:
+        return
+    try:
+        client.close()
+    except Exception:
+        return
