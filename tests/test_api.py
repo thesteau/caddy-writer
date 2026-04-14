@@ -57,7 +57,7 @@ def test_upload_translation_returns_json_and_writes_output(work_tmpdir: Path) ->
                 "text/csv",
             )
         },
-        data={"deploy": "false"},
+        data={"preview_only": "false"},
     )
 
     assert response.status_code == 200
@@ -66,7 +66,7 @@ def test_upload_translation_returns_json_and_writes_output(work_tmpdir: Path) ->
     assert "svc.home" in payload["generated_text"]
     assert payload["copied_to_caddy_dir"] is True
     assert (work_tmpdir / "output" / "Caddyfile.generated").exists()
-    assert (work_tmpdir / "deploy-target" / "Caddyfile.generated").exists()
+    assert (work_tmpdir / "deploy-target" / "Caddyfile").exists()
 
 
 def test_url_translation_works(work_tmpdir: Path, monkeypatch) -> None:
@@ -82,7 +82,7 @@ def test_url_translation_works(work_tmpdir: Path, monkeypatch) -> None:
     response = client.post(
         "/translate/url",
         headers={"accept": "application/json", "content-type": "application/json"},
-        json={"url": "https://example.com/sample.csv", "deploy": False},
+        json={"url": "https://example.com/sample.csv", "preview_only": False},
     )
 
     assert response.status_code == 200
@@ -123,7 +123,7 @@ def test_translate_upload_surfaces_validation_error(work_tmpdir: Path) -> None:
     assert payload["details"]
 
 
-def test_deploy_latest_returns_manual_instructions(work_tmpdir: Path) -> None:
+def test_deploy_latest_copies_generated_file(work_tmpdir: Path) -> None:
     client = build_client(work_tmpdir)
     output_file = work_tmpdir / "output" / "Caddyfile.generated"
     output_file.write_text("manual.home {\n    respond \"ok\"\n}\n", encoding="utf-8")
@@ -135,4 +135,5 @@ def test_deploy_latest_returns_manual_instructions(work_tmpdir: Path) -> None:
     assert payload["status"] == "ok"
     assert "mounted Caddy directory" in payload["message"]
     assert "manual.home" in payload["generated_text"]
-    assert payload["caddy_generated_file_path"].endswith("Caddyfile.generated")
+    assert payload["caddy_generated_file_path"].endswith("Caddyfile")
+    assert (work_tmpdir / "deploy-target" / "Caddyfile").read_text(encoding="utf-8") == "manual.home {\n    respond \"ok\"\n}\n"

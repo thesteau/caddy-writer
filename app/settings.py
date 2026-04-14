@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     temp_dir: Path = Field(default=Path("/app/tmp"))
     allow_url_fetch: bool = True
     caddy_output_dir: Path = Field(default=Path("/deploy-target"))
-    caddy_output_filename: str = "Caddyfile.generated"
+    caddy_output_filename: str = "Caddyfile"
 
     model_config = SettingsConfigDict(
         env_file=".env",
