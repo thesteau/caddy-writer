@@ -18,6 +18,8 @@ SUPPORTED_COLUMNS = {
     "upstream_port",
     "tls_mode",
     "skip_verify",
+    "redirect",
+    "header_up",
     "notes",
     "enabled",
 }
@@ -131,6 +133,8 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized["upstream_scheme"] = normalized["upstream_scheme"].map(_normalize_scheme)
     normalized["tls_mode"] = normalized["tls_mode"].map(_normalize_tls_mode)
     normalized["skip_verify"] = normalized["skip_verify"].map(lambda value: _parse_bool(value, default=False))
+    normalized["redirect"] = normalized["redirect"].map(lambda value: _parse_bool(value, default=False))
+    normalized["header_up"] = normalized["header_up"].map(_normalize_text)
     normalized["enabled"] = normalized["enabled"].map(lambda value: _parse_bool(value, default=True))
     normalized["upstream_port"] = normalized["upstream_port"].map(_parse_port)
 
@@ -158,6 +162,7 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
         tls_mode = row.get("tls_mode")
         enabled = row.get("enabled")
         skip_verify = row.get("skip_verify")
+        redirect = row.get("redirect")
         upstream_port = row.get("upstream_port")
         upstream_scheme = row.get("upstream_scheme")
 
@@ -185,6 +190,11 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
         if not isinstance(skip_verify, bool):
             errors.append(
                 ValidationError(row_number, "skip_verify", "skip_verify must be a boolean.")
+            )
+
+        if not isinstance(redirect, bool):
+            errors.append(
+                ValidationError(row_number, "redirect", "redirect must be a boolean.")
             )
 
         if not isinstance(enabled, bool):
@@ -265,6 +275,8 @@ def render_caddyfile(df: pd.DataFrame) -> str:
         upstream_url = build_upstream_url(row)
         tls_mode = str(row["tls_mode"])
         skip_verify = bool(row["skip_verify"])
+        redirect = bool(row["redirect"])
+        header_up_value = _normalize_text(row.get("header_up"))
         parsed_upstream = urlparse(upstream_url)
 
         site_label = f"http://{host}" if tls_mode == "off" else host
@@ -273,11 +285,16 @@ def render_caddyfile(df: pd.DataFrame) -> str:
         if tls_mode == "internal":
             lines.append("    tls internal")
 
-        if parsed_upstream.scheme == "https" and skip_verify:
+        if redirect:
+            lines.append(f"    redir {upstream_url}{{uri}} permanent")
+        elif (parsed_upstream.scheme == "https" and skip_verify) or header_up_value:
             lines.append(f"    reverse_proxy {upstream_url} {{")
-            lines.append("        transport http {")
-            lines.append("            tls_insecure_skip_verify")
-            lines.append("        }")
+            if header_up_value:
+                lines.append(f"        header_up Host {header_up_value}")
+            if parsed_upstream.scheme == "https" and skip_verify:
+                lines.append("        transport http {")
+                lines.append("            tls_insecure_skip_verify")
+                lines.append("        }")
             lines.append("    }")
         else:
             lines.append(f"    reverse_proxy {upstream_url}")
@@ -311,7 +328,7 @@ def _normalize_cell(value: Any) -> Any:
 
 
 def _normalize_text(value: Any) -> str | None:
-    if value is None:
+    if value is None or pd.isna(value):
         return None
     return str(value).strip() or None
 
