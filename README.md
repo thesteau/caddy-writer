@@ -59,6 +59,8 @@ Optional columns:
 - `upstream_port`
 - `tls_mode`
 - `skip_verify`
+- `redirect`
+- `header_up`
 - `notes`
 - `enabled`
 
@@ -66,8 +68,14 @@ Defaults:
 
 - `tls_mode=internal`
 - `skip_verify=false`
+- `redirect=false`
 - `enabled=true`
 - `upstream_scheme=http`
+
+Notes:
+
+- `redirect=true` emits `redir <target>{uri} permanent` instead of `reverse_proxy`.
+- `header_up` is trimmed and, when non-empty, emits `header_up Host <value>` inside the `reverse_proxy` block.
 
 Boolean true values: `true`, `1`, `yes`, `y`, `on`
 

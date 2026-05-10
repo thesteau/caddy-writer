@@ -53,6 +53,58 @@ def test_https_upstream_with_skip_verify() -> None:
     assert "tls_insecure_skip_verify" in result
 
 
+def test_redirect_translation() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,redirect\n"
+        "gateway.home,http://192.168.1.1,public,true\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    assert result == (
+        "gateway.home {\n"
+        "    redir http://192.168.1.1{uri} permanent\n"
+        "}\n"
+    )
+
+
+def test_header_up_and_skip_verify_share_proxy_block() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,skip_verify,header_up\n"
+        "nas.home,https://192.168.1.2:5001,internal,true,{upstream_hostport}\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    assert result == (
+        "nas.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy https://192.168.1.2:5001 {\n"
+        "        header_up Host {upstream_hostport}\n"
+        "        transport http {\n"
+        "            tls_insecure_skip_verify\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+def test_blank_header_up_does_not_create_proxy_block() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,header_up\n"
+        "plain.home,http://192.168.1.20:8080,internal,\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    assert result == (
+        "plain.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy http://192.168.1.20:8080\n"
+        "}\n"
+    )
+
+
 def test_public_tls_translation() -> None:
     prepared = _prepare(
         "host,upstream,tls_mode\n"
