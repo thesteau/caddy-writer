@@ -60,7 +60,12 @@ Optional columns:
 - `tls_mode`
 - `skip_verify`
 - `redirect`
+- `transport_versions`
 - `header_up`
+- `header_up_origin`
+- `header_up_x_forwarded_host`
+- `header_up_x_forwarded_proto`
+- `header_up_x_real_ip`
 - `notes`
 - `enabled`
 
@@ -75,7 +80,13 @@ Defaults:
 Notes:
 
 - `redirect=true` emits `redir <target>{uri} permanent` instead of `reverse_proxy`.
-- `header_up` is trimmed and, when non-empty, emits `header_up Host <value>` inside the `reverse_proxy` block.
+- `transport_versions`, when non-empty, emits `versions <value>` inside `transport http`.
+- `header_up` emits `header_up Host <value>`.
+- `header_up_origin` emits `header_up Origin <value>`.
+- `header_up_x_forwarded_host` emits `header_up X-Forwarded-Host <value>`.
+- `header_up_x_forwarded_proto` emits `header_up X-Forwarded-Proto <value>`.
+- `header_up_x_real_ip` emits `header_up X-Real-IP <value>`.
+- Blank values for these optional columns are ignored and produce no extra directives.
 
 Boolean true values: `true`, `1`, `yes`, `y`, `on`
 

@@ -80,10 +80,10 @@ def test_header_up_and_skip_verify_share_proxy_block() -> None:
         "nas.home {\n"
         "    tls internal\n"
         "    reverse_proxy https://192.168.1.2:5001 {\n"
-        "        header_up Host {upstream_hostport}\n"
         "        transport http {\n"
-        "            tls_insecure_skip_verify\n"
+            "            tls_insecure_skip_verify\n"
         "        }\n"
+        "        header_up Host {upstream_hostport}\n"
         "    }\n"
         "}\n"
     )
@@ -101,6 +101,32 @@ def test_blank_header_up_does_not_create_proxy_block() -> None:
         "plain.home {\n"
         "    tls internal\n"
         "    reverse_proxy http://192.168.1.20:8080\n"
+        "}\n"
+    )
+
+
+def test_transport_versions_and_multiple_headers_render_when_present() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,skip_verify,transport_versions,header_up,header_up_origin,header_up_x_forwarded_host,header_up_x_forwarded_proto,header_up_x_real_ip\n"
+        "gateway.home,https://192.168.1.1,internal,true,1.1,{host},https://gateway.home,{host},https,{remote_host}\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    assert result == (
+        "gateway.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy https://192.168.1.1 {\n"
+        "        transport http {\n"
+        "            versions 1.1\n"
+        "            tls_insecure_skip_verify\n"
+        "        }\n"
+        "        header_up Host {host}\n"
+        "        header_up Origin https://gateway.home\n"
+        "        header_up X-Forwarded-Host {host}\n"
+        "        header_up X-Forwarded-Proto https\n"
+        "        header_up X-Real-IP {remote_host}\n"
+        "    }\n"
         "}\n"
     )
 

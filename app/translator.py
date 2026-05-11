@@ -19,7 +19,12 @@ SUPPORTED_COLUMNS = {
     "tls_mode",
     "skip_verify",
     "redirect",
+    "transport_versions",
     "header_up",
+    "header_up_origin",
+    "header_up_x_forwarded_host",
+    "header_up_x_forwarded_proto",
+    "header_up_x_real_ip",
     "notes",
     "enabled",
 }
@@ -134,7 +139,12 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized["tls_mode"] = normalized["tls_mode"].map(_normalize_tls_mode)
     normalized["skip_verify"] = normalized["skip_verify"].map(lambda value: _parse_bool(value, default=False))
     normalized["redirect"] = normalized["redirect"].map(lambda value: _parse_bool(value, default=False))
+    normalized["transport_versions"] = normalized["transport_versions"].map(_normalize_text)
     normalized["header_up"] = normalized["header_up"].map(_normalize_text)
+    normalized["header_up_origin"] = normalized["header_up_origin"].map(_normalize_text)
+    normalized["header_up_x_forwarded_host"] = normalized["header_up_x_forwarded_host"].map(_normalize_text)
+    normalized["header_up_x_forwarded_proto"] = normalized["header_up_x_forwarded_proto"].map(_normalize_text)
+    normalized["header_up_x_real_ip"] = normalized["header_up_x_real_ip"].map(_normalize_text)
     normalized["enabled"] = normalized["enabled"].map(lambda value: _parse_bool(value, default=True))
     normalized["upstream_port"] = normalized["upstream_port"].map(_parse_port)
 
@@ -276,8 +286,11 @@ def render_caddyfile(df: pd.DataFrame) -> str:
         tls_mode = str(row["tls_mode"])
         skip_verify = bool(row["skip_verify"])
         redirect = bool(row["redirect"])
-        header_up_value = _normalize_text(row.get("header_up"))
+        transport_versions = _normalize_text(row.get("transport_versions"))
+        header_up_lines = _build_header_up_lines(row)
         parsed_upstream = urlparse(upstream_url)
+        has_transport_block = bool(transport_versions) or (parsed_upstream.scheme == "https" and skip_verify)
+        has_proxy_block = has_transport_block or bool(header_up_lines)
 
         site_label = f"http://{host}" if tls_mode == "off" else host
         lines = [f"{site_label} {{"]
@@ -287,14 +300,17 @@ def render_caddyfile(df: pd.DataFrame) -> str:
 
         if redirect:
             lines.append(f"    redir {upstream_url}{{uri}} permanent")
-        elif (parsed_upstream.scheme == "https" and skip_verify) or header_up_value:
+        elif has_proxy_block:
             lines.append(f"    reverse_proxy {upstream_url} {{")
-            if header_up_value:
-                lines.append(f"        header_up Host {header_up_value}")
-            if parsed_upstream.scheme == "https" and skip_verify:
+            if has_transport_block:
                 lines.append("        transport http {")
-                lines.append("            tls_insecure_skip_verify")
+                if transport_versions:
+                    lines.append(f"            versions {transport_versions}")
+                if parsed_upstream.scheme == "https" and skip_verify:
+                    lines.append("            tls_insecure_skip_verify")
                 lines.append("        }")
+            for header_up_line in header_up_lines:
+                lines.append(f"        {header_up_line}")
             lines.append("    }")
         else:
             lines.append(f"    reverse_proxy {upstream_url}")
@@ -316,6 +332,22 @@ def build_upstream_url(row: pd.Series) -> str:
     if upstream_port is not None and not _host_has_port(upstream_host):
         return f"{scheme}://{upstream_host}:{upstream_port}"
     return f"{scheme}://{upstream_host}"
+
+
+def _build_header_up_lines(row: pd.Series) -> list[str]:
+    header_columns = (
+        ("header_up", "Host"),
+        ("header_up_origin", "Origin"),
+        ("header_up_x_forwarded_host", "X-Forwarded-Host"),
+        ("header_up_x_forwarded_proto", "X-Forwarded-Proto"),
+        ("header_up_x_real_ip", "X-Real-IP"),
+    )
+    lines: list[str] = []
+    for column_name, header_name in header_columns:
+        value = _normalize_text(row.get(column_name))
+        if value:
+            lines.append(f"header_up {header_name} {value}")
+    return lines
 
 
 def _normalize_cell(value: Any) -> Any:
