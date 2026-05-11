@@ -1,8 +1,8 @@
-host,upstream,tls_mode,skip_verify,enabled,redirect,transport_versions,header_up,header_up_origin,header_up_x_forwarded_host,header_up_x_forwarded_proto,header_up_x_real_ip,notes
-nvr.home,http://192.168.5.2,internal,false,true,false,,,,,,,NVR
-duo3.home,http://192.168.5.15:631,internal,false,true,false,,localhost:5555,,,,,Printer
-nas.home,https://192.168.1.2:5001,internal,true,true,false,,,,,,,Synology
-base.home,http://192.168.1.4:7575,internal,false,true,false,,,,,,,Base app
-ha.home,http://192.168.1.5:8123,internal,false,true,false,,,,,,,Home Assistant
-portainer.home,https://192.168.1.5:9443,internal,true,true,false,,,,,,,Portainer
-gateway.home,https://192.168.1.1,internal,true,true,false,1.1,{host},https://gateway.home,{host},https,{remote_host},Gateway custom headers
+host,upstream,tls_mode,skip_verify,enabled,redirect,transport_versions,header_up,header_up_origin,header_up_x_forwarded_host,header_up_x_forwarded_port,header_up_x_forwarded_proto,header_up_x_real_ip,notes
+nvr.home,http://192.168.5.2,internal,false,true,false,,,,,,,,NVR
+duo3.home,http://192.168.5.15:631,internal,false,true,false,,localhost:5555,,,,,,Printer
+nas.home,https://192.168.1.2:5001,internal,true,true,false,,,,,,,,Synology
+base.home,http://192.168.1.4:7575,internal,false,true,false,,,,,,,,Base app
+ha.home,http://192.168.1.5:8123,internal,false,true,false,,,,,,,,Home Assistant
+portainer.home,https://192.168.1.5:9443,internal,true,true,false,,,,,,,,Portainer
+gateway.home,https://192.168.1.1,internal,true,true,false,1.1,{host},https://gateway.home,{host},443,https,{remote_host},Gateway custom headers

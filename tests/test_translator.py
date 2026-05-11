@@ -107,8 +107,8 @@ def test_blank_header_up_does_not_create_proxy_block() -> None:
 
 def test_transport_versions_and_multiple_headers_render_when_present() -> None:
     prepared = _prepare(
-        "host,upstream,tls_mode,skip_verify,transport_versions,header_up,header_up_origin,header_up_x_forwarded_host,header_up_x_forwarded_proto,header_up_x_real_ip\n"
-        "gateway.home,https://192.168.1.1,internal,true,1.1,{host},https://gateway.home,{host},https,{remote_host}\n"
+        "host,upstream,tls_mode,skip_verify,transport_versions,header_up,header_up_origin,header_up_x_forwarded_host,header_up_x_forwarded_port,header_up_x_forwarded_proto,header_up_x_real_ip\n"
+        "gateway.home,https://192.168.1.1,internal,true,1.1,{host},https://gateway.home,{host},443,https,{remote_host}\n"
     )
 
     result = translator.render_caddyfile(prepared.active_df)
@@ -124,6 +124,7 @@ def test_transport_versions_and_multiple_headers_render_when_present() -> None:
         "        header_up Host {host}\n"
         "        header_up Origin https://gateway.home\n"
         "        header_up X-Forwarded-Host {host}\n"
+        "        header_up X-Forwarded-Port 443\n"
         "        header_up X-Forwarded-Proto https\n"
         "        header_up X-Real-IP {remote_host}\n"
         "    }\n"

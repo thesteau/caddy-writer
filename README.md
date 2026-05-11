@@ -64,6 +64,7 @@ Optional columns:
 - `header_up`
 - `header_up_origin`
 - `header_up_x_forwarded_host`
+- `header_up_x_forwarded_port`
 - `header_up_x_forwarded_proto`
 - `header_up_x_real_ip`
 - `notes`
@@ -84,6 +85,7 @@ Notes:
 - `header_up` emits `header_up Host <value>`.
 - `header_up_origin` emits `header_up Origin <value>`.
 - `header_up_x_forwarded_host` emits `header_up X-Forwarded-Host <value>`.
+- `header_up_x_forwarded_port` emits `header_up X-Forwarded-Port <value>`.
 - `header_up_x_forwarded_proto` emits `header_up X-Forwarded-Proto <value>`.
 - `header_up_x_real_ip` emits `header_up X-Real-IP <value>`.
 - Blank values for these optional columns are ignored and produce no extra directives.

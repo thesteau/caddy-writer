@@ -23,6 +23,7 @@ SUPPORTED_COLUMNS = {
     "header_up",
     "header_up_origin",
     "header_up_x_forwarded_host",
+    "header_up_x_forwarded_port",
     "header_up_x_forwarded_proto",
     "header_up_x_real_ip",
     "notes",
@@ -143,6 +144,7 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized["header_up"] = normalized["header_up"].map(_normalize_text)
     normalized["header_up_origin"] = normalized["header_up_origin"].map(_normalize_text)
     normalized["header_up_x_forwarded_host"] = normalized["header_up_x_forwarded_host"].map(_normalize_text)
+    normalized["header_up_x_forwarded_port"] = normalized["header_up_x_forwarded_port"].map(_normalize_text)
     normalized["header_up_x_forwarded_proto"] = normalized["header_up_x_forwarded_proto"].map(_normalize_text)
     normalized["header_up_x_real_ip"] = normalized["header_up_x_real_ip"].map(_normalize_text)
     normalized["enabled"] = normalized["enabled"].map(lambda value: _parse_bool(value, default=True))
@@ -339,6 +341,7 @@ def _build_header_up_lines(row: pd.Series) -> list[str]:
         ("header_up", "Host"),
         ("header_up_origin", "Origin"),
         ("header_up_x_forwarded_host", "X-Forwarded-Host"),
+        ("header_up_x_forwarded_port", "X-Forwarded-Port"),
         ("header_up_x_forwarded_proto", "X-Forwarded-Proto"),
         ("header_up_x_real_ip", "X-Real-IP"),
     )
@@ -362,6 +365,8 @@ def _normalize_cell(value: Any) -> Any:
 def _normalize_text(value: Any) -> str | None:
     if value is None or pd.isna(value):
         return None
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
     return str(value).strip() or None
 
 
