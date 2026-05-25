@@ -11,6 +11,8 @@
 - Preview of the generated Caddyfile in the browser
 - Writes a staging file to `OUTPUT_DIR/Caddyfile.generated`
 - Copies the staging file into a mounted Caddy directory unless `preview_only=true`
+- Saves an optional post-translate command and script workspace at `SCRIPT_DIR`
+- Can run the saved command after a translate request, from `SCRIPT_DIR`
 - Uses `preview_only=true` when you want generation without replacing the mounted live file
 - Writes the mounted target as `Caddyfile` during the normal deploy flow
 - Simple shell helper that copies the latest generated file into the mounted target
@@ -32,6 +34,7 @@ caddy-writer/
 │   └── static/
 │       └── style.css
 ├── output/
+├── scripts-data/
 ├── scripts/
 │   └── deploy.sh
 ├── tests/
@@ -104,6 +107,7 @@ HOST=0.0.0.0
 PORT=8000
 
 OUTPUT_DIR=/app/output
+SCRIPT_DIR=/app/scripts-data
 TEMP_DIR=/app/tmp
 
 ALLOW_URL_FETCH=true
@@ -114,10 +118,12 @@ CADDY_OUTPUT_FILENAME=Caddyfile
 Important:
 
 - The app writes the generated file to `OUTPUT_DIR/Caddyfile.generated`.
+- The app also keeps a custom-script workspace at `SCRIPT_DIR`.
 - When `preview_only=false` (the default), the app also copies that file to `CADDY_OUTPUT_DIR/CADDY_OUTPUT_FILENAME`.
 - With the current defaults, that mounted target file is `CADDY_OUTPUT_DIR/Caddyfile`.
 - If you do not want to overwrite the mounted live file, use `preview_only=true`.
 - If the Caddy directory is not mounted, generation still succeeds and the API/UI returns a warning instead of failing the translation.
+- When a saved custom command is run, its working directory is always `SCRIPT_DIR`.
 
 ## Run locally
 
@@ -140,7 +146,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The default compose file only mounts `./output` so generated files persist on the host.
+The default compose file mounts both `./output` and `./scripts-data` so generated files and saved scripts persist on the host.
 
 To copy generated output into a mounted Caddy directory, uncomment and adjust the optional volume:
 
@@ -149,10 +155,11 @@ services:
   caddy-writer:
     volumes:
       - ./output:/app/output
+      - ./scripts-data:/app/scripts-data
       - /path/to/real/caddy/dir:/deploy-target
 ```
 
-With `.env.example`, the generated preview is stored at `./output/Caddyfile.generated` and the mounted copy is written to `/path/to/real/caddy/dir/Caddyfile`.
+With `.env.example`, the generated preview is stored at `./output/Caddyfile.generated`, saved scripts live in `./scripts-data`, and the mounted copy is written to `/path/to/real/caddy/dir/Caddyfile`.
 
 If you want preview without replacing the mounted live file, submit with `preview_only=true`.
 
@@ -181,9 +188,27 @@ After generation, the app:
 1. Saves the generated file to `OUTPUT_DIR/Caddyfile.generated`.
 2. Shows the preview in the browser.
 3. Copies that file to `CADDY_OUTPUT_DIR/CADDY_OUTPUT_FILENAME` unless `preview_only=true`.
-4. Replaces the mounted target file during the normal deploy flow.
+4. Copies the latest generated file into `SCRIPT_DIR/Caddyfile.generated`.
+5. Optionally runs a saved custom command such as `bash ./update.sh` from `SCRIPT_DIR`.
+6. Replaces the mounted target file during the normal deploy flow.
 
 If you want to inspect before copying, use `preview_only=true` with either translation endpoint and then call `POST /deploy/latest` later when you are ready.
+
+## Saved custom script flow
+
+Use the **Execute Custom Script** block on the main page to:
+
+- save a command such as `bash ./update.sh` or `./update.sh`
+- optionally upload the script file into `SCRIPT_DIR`
+
+Then, on either translate form, check **Run saved custom script after translate** when you want that saved command to execute after a successful translation.
+
+Notes:
+
+- The command is persisted on disk in `SCRIPT_DIR/custom-script.json`.
+- Uploaded script files are stored in `SCRIPT_DIR`.
+- The command is launched with working directory `SCRIPT_DIR`.
+- The translation result page shows the command, exit code, and any stdout/stderr.
 
 ## Tests
 

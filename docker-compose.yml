@@ -8,6 +8,7 @@ services:
       - .env
     volumes:
       - ./output:/app/output
+      - ./scripts-data:/app/scripts-data
       # Mount the real Caddy config directory here to receive Caddyfile.generated.
       # - /path/to/real/caddy/dir:/deploy-target
     restart: unless-stopped

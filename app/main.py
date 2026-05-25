@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError as PydanticValidationError
 
-from app import deploy, translator
-from app.models import TranslationResponse, UrlTranslateRequest
+from app import custom_script, deploy, translator
+from app.models import ScriptExecutionResponse, TranslationResponse, UrlTranslateRequest
 from app.settings import Settings, get_settings
 
 
@@ -23,13 +23,16 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, settings: Settings = Depends(get_settings)) -> HTMLResponse:
+    saved_script = custom_script.load_config(settings=settings)
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "sample_csv": _read_sample_csv(),
             "latest_preview": _read_latest_preview(settings),
+            "saved_script": saved_script,
             "settings": settings,
+            "script_saved": request.query_params.get("script_saved") == "1",
         },
     )
 
@@ -39,6 +42,7 @@ async def translate_upload(
     request: Request,
     csv_file: UploadFile = File(...),
     preview_only: bool = Form(False),
+    run_custom_script: bool = Form(False),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     try:
@@ -48,6 +52,7 @@ async def translate_upload(
             source_type="upload",
             source_name=csv_file.filename or "upload.csv",
             preview_only=preview_only,
+            run_custom_script=run_custom_script,
             settings=settings,
         )
         return _render_success(request, result)
@@ -71,11 +76,29 @@ async def translate_url(
             source_type="url",
             source_name=payload.url,
             preview_only=payload.preview_only,
+            run_custom_script=payload.run_custom_script,
             settings=settings,
         )
         return _render_success(request, result)
     except Exception as exc:
         return _render_error_response(request, exc)
+
+
+@app.post("/custom-script/save")
+async def save_custom_script(
+    command: str = Form(""),
+    script_file: UploadFile | None = File(None),
+    settings: Settings = Depends(get_settings),
+) -> RedirectResponse:
+    file_obj = script_file.file if script_file is not None else None
+    file_name = script_file.filename if script_file is not None else None
+    custom_script.save_config(
+        command=command,
+        uploaded_script=file_obj,
+        uploaded_script_name=file_name,
+        settings=settings,
+    )
+    return RedirectResponse(url="/?script_saved=1", status_code=303)
 
 
 @app.get("/health")
@@ -127,11 +150,13 @@ def _build_translation_response(
     source_type: str,
     source_name: str,
     preview_only: bool,
+    run_custom_script: bool,
     settings: Settings,
 ) -> TranslationResponse:
     prepared = translator.prepare_dataframe(dataframe)
     generated_text = translator.render_caddyfile(prepared.active_df)
     generated_file_path = deploy.write_generated_file(generated_text, settings=settings)
+    custom_script.sync_generated_file_into_workspace(generated_file_path, settings=settings)
 
     warnings = list(prepared.warnings)
     copied_to_caddy_dir = False
@@ -151,6 +176,24 @@ def _build_translation_response(
             warnings.append(str(exc))
             caddy_copy_message = "Could not copy the generated file into the mounted Caddy directory."
 
+    script_execution: ScriptExecutionResponse | None = None
+    if run_custom_script:
+        execution = custom_script.run_saved_command(settings=settings)
+        script_execution = ScriptExecutionResponse(
+            attempted=execution.attempted,
+            command=execution.command,
+            working_directory=execution.working_directory,
+            succeeded=execution.succeeded,
+            exit_code=execution.exit_code,
+            stdout=execution.stdout,
+            stderr=execution.stderr,
+            error_message=execution.error_message,
+        )
+        if execution.error_message:
+            warnings.append(execution.error_message)
+        elif execution.attempted and not execution.succeeded:
+            warnings.append("Custom script command failed after translation.")
+
     return TranslationResponse(
         source_type=source_type,
         source_name=source_name,
@@ -164,6 +207,7 @@ def _build_translation_response(
         copied_to_caddy_dir=copied_to_caddy_dir,
         caddy_generated_file_path=caddy_generated_file_path,
         caddy_copy_message=caddy_copy_message,
+        script_execution=script_execution,
     )
 
 
@@ -177,6 +221,7 @@ async def _parse_url_payload(request: Request) -> UrlTranslateRequest:
     payload = {
         "url": form.get("url", ""),
         "preview_only": form.get("preview_only", False),
+        "run_custom_script": form.get("run_custom_script", False),
     }
     return UrlTranslateRequest.model_validate(payload)
 

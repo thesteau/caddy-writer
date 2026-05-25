@@ -28,6 +28,11 @@
                         <span>Preview only</span>
                     </label>
 
+                    <label class="check">
+                        <input type="checkbox" name="run_custom_script" value="true">
+                        <span>Run saved custom script after translate</span>
+                    </label>
+
                     <button type="submit">Translate Upload</button>
                 </form>
             </article>
@@ -45,9 +50,37 @@
                         <span>Preview only</span>
                     </label>
 
+                    <label class="check">
+                        <input type="checkbox" name="run_custom_script" value="true">
+                        <span>Run saved custom script after translate</span>
+                    </label>
+
                     <button type="submit">Translate URL</button>
                 </form>
             </article>
+        </section>
+
+        <section class="panel">
+            <h2>Execute Custom Script</h2>
+            <p class="muted">Save any shell command here, like <code>bash ./update.sh</code>, <code>./update.sh</code>, or something else entirely. It only runs when a translate action checks the custom-script box, and it will run from <code>{{ settings.script_dir }}</code>.</p>
+            {% if script_saved %}
+            <p class="notice">Saved command and script settings.</p>
+            {% endif %}
+            <form action="/custom-script/save" method="post" enctype="multipart/form-data">
+                <label class="field">
+                    <span>Command</span>
+                    <input type="text" name="command" value="{{ saved_script.command }}" placeholder="bash ./update.sh">
+                </label>
+
+                <label class="field">
+                    <span>Upload script file</span>
+                    <input type="file" name="script_file">
+                </label>
+
+                <p class="muted">Saved script: {{ saved_script.uploaded_script_name or "none" }}</p>
+                <p class="muted">If you clear the command and click save, the cleared command is persisted too.</p>
+                <button type="submit">Save Command</button>
+            </form>
         </section>
 
         <section class="panel">
