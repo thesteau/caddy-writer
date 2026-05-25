@@ -20,6 +20,10 @@ ENV VIRTUAL_ENV=/opt/venv \
 
 WORKDIR /app
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /opt/venv /opt/venv
 COPY app ./app
 COPY sample ./sample
