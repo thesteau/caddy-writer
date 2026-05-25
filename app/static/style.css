@@ -96,6 +96,7 @@ h1 {
 }
 
 input[type="url"],
+input[type="text"],
 input[type="file"] {
     width: 100%;
     padding: 0.85rem 0.95rem;
@@ -157,6 +158,14 @@ dd {
 
 .muted {
     color: var(--muted);
+}
+
+.notice {
+    margin: 0 0 1rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid rgba(156, 79, 45, 0.25);
+    border-radius: 12px;
+    background: rgba(156, 79, 45, 0.08);
 }
 
 @media (max-width: 720px) {

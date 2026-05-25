@@ -64,6 +64,33 @@
             <h2>Generated Caddyfile</h2>
             <pre>{{ result.generated_text }}</pre>
         </section>
+
+        {% if result.script_execution %}
+        <section class="panel">
+            <h2>Custom Script Execution</h2>
+            <dl class="stats">
+                <div><dt>Attempted</dt><dd>{{ result.script_execution.attempted }}</dd></div>
+                <div><dt>Command</dt><dd>{{ result.script_execution.command or "n/a" }}</dd></div>
+                <div><dt>Working directory</dt><dd>{{ result.script_execution.working_directory or "n/a" }}</dd></div>
+                <div><dt>Succeeded</dt><dd>{{ result.script_execution.succeeded }}</dd></div>
+                <div><dt>Exit code</dt><dd>{{ result.script_execution.exit_code if result.script_execution.exit_code is not none else "n/a" }}</dd></div>
+            </dl>
+
+            {% if result.script_execution.error_message %}
+            <p>{{ result.script_execution.error_message }}</p>
+            {% endif %}
+
+            {% if result.script_execution.stdout %}
+            <h3>stdout</h3>
+            <pre>{{ result.script_execution.stdout }}</pre>
+            {% endif %}
+
+            {% if result.script_execution.stderr %}
+            <h3>stderr</h3>
+            <pre>{{ result.script_execution.stderr }}</pre>
+            {% endif %}
+        </section>
+        {% endif %}
         {% endif %}
     </main>
 </body>

@@ -196,6 +196,7 @@ def test_url_import_works(monkeypatch) -> None:
 def test_write_and_read_generated_file(work_tmpdir) -> None:
     settings = Settings(
         output_dir=work_tmpdir / "output",
+        script_dir=work_tmpdir / "scripts-data",
         temp_dir=work_tmpdir / "tmp",
         caddy_output_dir=work_tmpdir / "deploy-target",
     )
@@ -209,6 +210,7 @@ def test_write_and_read_generated_file(work_tmpdir) -> None:
 def test_copy_generated_file_to_caddy_dir(work_tmpdir) -> None:
     settings = Settings(
         output_dir=work_tmpdir / "output",
+        script_dir=work_tmpdir / "scripts-data",
         temp_dir=work_tmpdir / "tmp",
         caddy_output_dir=work_tmpdir / "deploy-target",
     )

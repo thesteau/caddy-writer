@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     output_dir: Path = Field(default=Path("/app/output"))
+    script_dir: Path = Field(default=Path("/app/scripts-data"))
     temp_dir: Path = Field(default=Path("/app/tmp"))
     allow_url_fetch: bool = True
     caddy_output_dir: Path = Field(default=Path("/deploy-target"))
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
 
     def ensure_directories(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.script_dir.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
 
