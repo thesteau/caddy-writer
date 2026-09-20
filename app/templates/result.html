@@ -1,14 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>caddy-writer result</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-    <main class="page">
-        <section class="hero">
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
             <p class="eyebrow">Translation status</p>
             <h1>caddy-writer</h1>
             <p class="lede"><a href="/">Back to input form</a></p>
@@ -92,6 +84,4 @@
         </section>
         {% endif %}
         {% endif %}
-    </main>
-</body>
-</html>
+{% endblock %}

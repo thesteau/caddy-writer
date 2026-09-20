@@ -7,6 +7,8 @@
 - HTML form and JSON API
 - CSV upload or server-side URL fetch
 - Google Sheets share-link support via CSV export conversion
+- Persistent saved source URL with overwrite, open-in-new-tab preview, and translation actions
+- Dark interface throughout
 - Row normalization, validation, and helpful error messages
 - Preview of the generated Caddyfile in the browser
 - Writes a staging file to `OUTPUT_DIR/Caddyfile.generated`
@@ -21,33 +23,24 @@
 ## Project layout
 
 ```text
-caddy-writer/
-├── app/
-│   ├── main.py
-│   ├── translator.py
-│   ├── deploy.py
-│   ├── models.py
-│   ├── settings.py
-│   ├── templates/
-│   │   ├── index.html
-│   │   └── result.html
-│   └── static/
-│       └── style.css
-├── output/
-├── scripts-data/
-├── scripts/
-│   └── deploy.sh
-├── tests/
-│   ├── test_translator.py
-│   └── test_api.py
-├── sample/
-│   └── sample.csv
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── .env.example
-└── README.md
+app/
+  main.py             HTTP routes and request parsing
+  workflows.py        Shared translation, deployment, and Update orchestration
+  presentation.py     HTML/JSON responses and error formatting
+  translator.py       CSV parsing, validation, and Caddyfile rendering
+  deploy.py           Generated file and Caddy directory operations
+  saved_source.py     Persistent source URL
+  custom_script.py    Saved commands, script workspace, and execution
+  models.py           Request and response schemas
+  settings.py         Environment configuration
+  templates/          Shared base layout, input form, and results
+  static/style.css    Dark interface styles
+tests/                Translation and API regression tests
+sample/sample.csv     Example input
+scripts/deploy.sh     Manual deployment helper
 ```
+
+Routes call shared workflows rather than one another. Workflows have no HTTP dependencies; presentation handles response negotiation and errors. Saved source configuration and script configuration retain their existing locations, so this organization requires no data migration.
 
 ## CSV schema
 
@@ -163,11 +156,22 @@ With `.env.example`, the generated preview is stored at `./output/Caddyfile.gene
 
 If you want preview without replacing the mounted live file, submit with `preview_only=true`.
 
+## Saved source URL
+
+Use **Saved Sheet or CSV URL** to save your usual Google Sheet or CSV URL. **Overwrite Saved URL** replaces it; the separate **Paste URL** form remains available for one-off translations and never changes the saved source.
+
+The URL is stored in `OUTPUT_DIR/saved-source.json`, so it survives app restarts and container recreation when the output volume is retained (as in the supplied Compose files). It is shared by everyone using this app. Saving validates the URL format without fetching or deploying anything.
+
+**Preview Saved URL (new tab)** opens the saved Sheet or CSV URL directly in a new browser tab. **Update** fetches fresh contents, replaces the configured Caddyfile, and automatically runs your saved custom command if configured. No URL entry or checkbox selection is needed. URL editing is under **Change saved URL**. Edit the URL and save it before using either action to switch sources.
+
 ## API endpoints
 
 - `GET /` renders the HTML UI
 - `POST /translate/upload` accepts multipart CSV uploads
 - `POST /translate/url` accepts JSON or form submissions with a URL
+- `POST /source/save` accepts JSON or form submissions with `url` to save or replace the source
+- `POST /update` updates from the saved URL and runs the configured custom command without request fields
+- `POST /translate/saved` accepts form fields `preview_only` and `run_custom_script`, using the persisted URL
 - `GET /health` returns `{"status":"ok"}`
 - `GET /preview/latest` returns the latest generated Caddyfile text
 - `POST /deploy/latest` copies the latest generated staging file into the mounted Caddy directory and returns the destination path
@@ -201,13 +205,13 @@ Use the **Execute Custom Script** block on the main page to:
 - save a command such as `bash ./update.sh` or `./update.sh`
 - optionally upload the script file into `SCRIPT_DIR`
 
-Then, on either translate form, check **Run saved custom script after translate** when you want that saved command to execute after a successful translation.
+**Update** automatically runs the saved command if one is configured. On the upload and paste-URL forms, check **Run saved custom script after translate** when you want that saved command to execute after a successful translation.
 
 Notes:
 
 - The command is persisted on disk in `SCRIPT_DIR/custom-script.json`.
 - Uploaded script files are stored in `SCRIPT_DIR`.
-- The command is launched with working directory `SCRIPT_DIR`.
+- The command is launched with working directory `SCRIPT_DIR`, including when `preview_only=true` if requested.
 - The translation result page shows the command, exit code, and any stdout/stderr.
 
 ## Tests
