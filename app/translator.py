@@ -92,7 +92,9 @@ def normalize_csv_url(url: str) -> str:
     parsed = urlparse(cleaned)
     if parsed.scheme not in {"http", "https"}:
         raise CSVError("URL must start with http:// or https://.")
-    if "docs.google.com" in parsed.netloc and "/spreadsheets/" in parsed.path:
+    if not parsed.hostname or any(char.isspace() for char in cleaned):
+        raise CSVError("URL must include a valid host and contain no whitespace.")
+    if parsed.hostname == "docs.google.com" and "/spreadsheets/" in parsed.path:
         return build_google_sheets_csv_url(cleaned)
     return cleaned
 

@@ -1,17 +1,42 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>caddy-writer</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-    <main class="page">
-        <section class="hero">
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
             <p class="eyebrow">Internal homelab utility</p>
             <h1>caddy-writer</h1>
             <p class="lede">Drop in a CSV, preview the generated Caddyfile, and optionally deploy it into a live Caddy setup.</p>
+        </section>
+
+        <section class="panel saved-source">
+            <p class="eyebrow">Ready when you are</p>
+            <h2>Saved Sheet or CSV URL</h2>
+            <p class="muted">Save your usual source once. After that, just click Update.</p>
+            {% if source_saved %}
+            <p class="notice" role="status">Source URL saved.</p>
+            {% endif %}
+            {% if saved_url %}
+            <form action="/update" method="post">
+                <div class="actions">
+                    <button type="submit">Update</button>
+                    <a class="button secondary" href="{{ saved_url }}" target="_blank" rel="noopener noreferrer">Preview Saved URL (new tab)</a>
+                </div>
+            </form>
+            <p class="muted">Update fetches your saved source and copies the generated Caddyfile to Caddy{% if saved_script.has_command %}, then runs your saved custom command{% endif %}.</p>
+            <p class="muted source-url">Current source: {{ saved_url }}</p>
+            <details>
+                <summary>Change saved URL</summary>
+            {% else %}
+            <p class="muted">No source saved yet. Save it once, then just click Update.</p>
+            {% endif %}
+            <form action="/source/save" method="post">
+                <label class="field">
+                    <span>Saved URL</span>
+                    <input type="url" name="url" value="{{ saved_url or '' }}" placeholder="https://docs.google.com/..." required>
+                </label>
+                <button class="secondary" type="submit">{{ 'Overwrite Saved URL' if saved_url else 'Save URL' }}</button>
+            </form>
+            {% if saved_url %}
+            </details>
+            {% endif %}
         </section>
 
         <section class="grid">
@@ -62,7 +87,7 @@
 
         <section class="panel">
             <h2>Execute Custom Script</h2>
-            <p class="muted">Save any shell command here, like <code>bash ./update.sh</code>, <code>./update.sh</code>, or something else entirely. It only runs when a translate action checks the custom-script box, and it will run from <code>{{ settings.script_dir }}</code>.</p>
+            <p class="muted">Save any shell command here, like <code>bash ./update.sh</code>, <code>./update.sh</code>, or something else entirely. It runs automatically with Update, or when you check the custom-script box on a translate form, and it will run from <code>{{ settings.script_dir }}</code>.</p>
             {% if script_saved %}
             <p class="notice">Saved command and script settings.</p>
             {% endif %}
@@ -101,6 +126,4 @@
             <h2>Caddy Directory Copy</h2>
             <p class="muted">By default, generated output is also copied into the mounted Caddy directory as <code>Caddyfile</code>. Use preview-only when you want to generate and inspect without replacing the mounted live file.</p>
         </section>
-    </main>
-</body>
-</html>
+{% endblock %}
