@@ -135,9 +135,9 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         if column not in normalized.columns:
             normalized[column] = None
 
-    normalized["host"] = normalized["host"].map(_normalize_text)
-    normalized["upstream"] = normalized["upstream"].map(_normalize_text)
-    normalized["upstream_host"] = normalized["upstream_host"].map(_normalize_text)
+    normalized["host"] = normalized["host"].map(_normalize_address)
+    normalized["upstream"] = normalized["upstream"].map(_normalize_address)
+    normalized["upstream_host"] = normalized["upstream_host"].map(_normalize_address)
     normalized["upstream_scheme"] = normalized["upstream_scheme"].map(_normalize_scheme)
     normalized["tls_mode"] = normalized["tls_mode"].map(_normalize_tls_mode)
     normalized["skip_verify"] = normalized["skip_verify"].map(lambda value: _parse_bool(value, default=False))
@@ -370,6 +370,13 @@ def _normalize_text(value: Any) -> str | None:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip() or None
+
+
+def _normalize_address(value: Any) -> str | None:
+    text = _normalize_text(value)
+    if text is None:
+        return None
+    return text.rstrip("/") or None
 
 
 def _normalize_scheme(value: Any) -> str:

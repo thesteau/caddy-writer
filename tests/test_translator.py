@@ -41,6 +41,36 @@ def test_http_upstream_translation() -> None:
     )
 
 
+@pytest.mark.parametrize("suffix", ["/", "///", "/  "])
+@pytest.mark.parametrize("redirect", [False, True])
+def test_trailing_slashes_removed_from_addresses(suffix: str, redirect: bool) -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,redirect\n"
+        f"app.home{suffix},http://192.168.1.50:8080{suffix},public,{redirect}\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    directive = (
+        "redir http://192.168.1.50:8080{uri} permanent"
+        if redirect else "reverse_proxy http://192.168.1.50:8080"
+    )
+    assert result == f"app.home {{\n    {directive}\n}}\n"
+
+
+def test_trailing_slash_removed_before_building_upstream_with_port() -> None:
+    prepared = _prepare(
+        "host,upstream_host,upstream_port,tls_mode\n"
+        "app.home,192.168.1.50/,8080,public\n"
+    )
+
+    assert translator.render_caddyfile(prepared.active_df) == (
+        "app.home {\n"
+        "    reverse_proxy http://192.168.1.50:8080\n"
+        "}\n"
+    )
+
+
 def test_https_upstream_with_skip_verify() -> None:
     prepared = _prepare(
         "host,upstream,tls_mode,skip_verify\n"
