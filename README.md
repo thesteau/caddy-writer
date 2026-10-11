@@ -8,6 +8,7 @@
 - CSV upload or server-side URL fetch
 - Google Sheets share-link support via CSV export conversion
 - Persistent saved source URL with overwrite, open-in-new-tab preview, and translation actions
+- Automatic sync every 12 hours, only when a valid source URL is saved
 - Dark interface throughout
 - Row normalization, validation, and helpful error messages
 - Preview of the generated Caddyfile in the browser
@@ -30,6 +31,7 @@ app/
   translator.py       CSV parsing, validation, and Caddyfile rendering
   deploy.py           Generated file and Caddy directory operations
   saved_source.py     Persistent source URL
+  scheduler.py        Background saved-source sync every 12 hours
   custom_script.py    Saved commands, script workspace, and execution
   models.py           Request and response schemas
   settings.py         Environment configuration
@@ -163,6 +165,12 @@ Use **Saved Sheet or CSV URL** to save your usual Google Sheet or CSV URL. **Ove
 The URL is stored in `OUTPUT_DIR/saved-source.json`, so it survives app restarts and container recreation when the output volume is retained (as in the supplied Compose files). It is shared by everyone using this app. Saving validates the URL format without fetching or deploying anything.
 
 **Preview Saved URL (new tab)** opens the saved Sheet or CSV URL directly in a new browser tab. **Update** fetches fresh contents, replaces the configured Caddyfile, and automatically runs your saved custom command if configured. No URL entry or checkbox selection is needed. URL editing is under **Change saved URL**. Edit the URL and save it before using either action to switch sources.
+
+While the app is running, it checks every 12 hours and automatically performs the same actions as **Update**, including the saved custom command if configured, only when a valid saved source exists and `ALLOW_URL_FETCH=true`. Missing, invalid, or corrupt source records are skipped without fetching, generating, deploying, or running a command. One-off URL translations and CSV uploads do not enable automatic sync.
+
+The first check is 12 hours after app startup; saving a URL does not trigger an immediate update. Each subsequent check waits 12 hours after the previous check finishes. Restarting the app resets this timer. The current saved URL is read at each check, so changing it takes effect on the next check. Failures and workflow warnings appear in the server logs, and a failed check does not stop future checks. Shutdown stops the timer and waits for any update already in progress to finish.
+
+Run a single app worker/replica, as in the supplied Docker command. Each app process has its own timer.
 
 ## API endpoints
 

@@ -1,11 +1,18 @@
 """Generation, deployment, and script workflows, independent of HTTP routes."""
 from __future__ import annotations
 
+from threading import RLock
+
 import pandas as pd
 
 from app import custom_script, deploy, saved_source, translator
 from app.models import ScriptExecutionResponse, TranslationResponse, UrlTranslateRequest
 from app.settings import Settings
+
+
+# Keep generated, deployed, and script-workspace files from different updates
+# together when a scheduled update overlaps a manual request.
+translation_lock = RLock()
 
 
 def translate_saved(
@@ -36,6 +43,20 @@ def translate_url(payload: UrlTranslateRequest, settings: Settings) -> Translati
 
 
 def translate_dataframe(
+    dataframe: pd.DataFrame,
+    source_type: str,
+    source_name: str,
+    preview_only: bool,
+    run_custom_script: bool,
+    settings: Settings,
+) -> TranslationResponse:
+    with translation_lock:
+        return _translate_dataframe(
+            dataframe, source_type, source_name, preview_only, run_custom_script, settings,
+        )
+
+
+def _translate_dataframe(
     dataframe: pd.DataFrame,
     source_type: str,
     source_name: str,

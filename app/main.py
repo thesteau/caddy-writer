@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from app import custom_script, deploy, saved_source, translator, workflows
+from app import custom_script, deploy, saved_source, scheduler, translator, workflows
 from app.models import UrlTranslateRequest
 from app.presentation import render_error, render_success, templates, wants_json
 from app.settings import Settings, get_settings
@@ -15,7 +17,20 @@ from app.settings import Settings, get_settings
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 
-app = FastAPI(title="caddy-writer")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    stop = asyncio.Event()
+    task = asyncio.create_task(scheduler.run_periodic_sync(get_settings(), stop))
+    try:
+        yield
+    finally:
+        stop.set()
+        # Let an in-progress update finish before shutting down.
+        await task
+
+
+app = FastAPI(title="caddy-writer", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
@@ -142,11 +157,12 @@ async def preview_latest(settings: Settings = Depends(get_settings)) -> PlainTex
 @app.post("/deploy/latest")
 async def deploy_latest(settings: Settings = Depends(get_settings)) -> JSONResponse:
     try:
-        generated_file_path, generated_text = deploy.read_generated_file(settings=settings)
-        caddy_generated_file_path = deploy.copy_generated_file_to_caddy_dir(
-            generated_file_path,
-            settings=settings,
-        )
+        with workflows.translation_lock:
+            generated_file_path, generated_text = deploy.read_generated_file(settings=settings)
+            caddy_generated_file_path = deploy.copy_generated_file_to_caddy_dir(
+                generated_file_path,
+                settings=settings,
+            )
     except FileNotFoundError as exc:
         return JSONResponse(
             status_code=404,
