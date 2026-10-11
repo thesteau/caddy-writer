@@ -13,6 +13,13 @@
             {% if source_saved %}
             <p class="notice" role="status">Source URL saved.</p>
             {% endif %}
+            {% if not settings.allow_url_fetch %}
+            <p class="muted">Automatic sync is disabled because URL fetching is disabled.</p>
+            {% elif saved_url %}
+            <p class="muted">Automatic sync runs every 12 hours while the app is running, using the same actions as Update.</p>
+            {% else %}
+            <p class="muted">Automatic sync stays inactive until a Sheet or CSV URL is saved.</p>
+            {% endif %}
             {% if saved_url %}
             <form action="/update" method="post">
                 <div class="actions">
