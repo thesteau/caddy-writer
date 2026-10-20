@@ -21,6 +21,7 @@ SUPPORTED_COLUMNS = {
     "redirect",
     "transport_versions",
     "header_up",
+    "header_up_remove",
     "header_up_origin",
     "header_up_x_forwarded_host",
     "header_up_x_forwarded_port",
@@ -144,6 +145,7 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized["redirect"] = normalized["redirect"].map(lambda value: _parse_bool(value, default=False))
     normalized["transport_versions"] = normalized["transport_versions"].map(_normalize_text)
     normalized["header_up"] = normalized["header_up"].map(_normalize_text)
+    normalized["header_up_remove"] = normalized["header_up_remove"].map(_normalize_text)
     normalized["header_up_origin"] = normalized["header_up_origin"].map(_normalize_text)
     normalized["header_up_x_forwarded_host"] = normalized["header_up_x_forwarded_host"].map(_normalize_text)
     normalized["header_up_x_forwarded_port"] = normalized["header_up_x_forwarded_port"].map(_normalize_text)
@@ -348,6 +350,9 @@ def _build_header_up_lines(row: pd.Series) -> list[str]:
         ("header_up_x_real_ip", "X-Real-IP"),
     )
     lines: list[str] = []
+    removed_headers = _normalize_text(row.get("header_up_remove"))
+    if removed_headers:
+        lines.extend(f"header_up -{header_name}" for header_name in removed_headers.split())
     for column_name, header_name in header_columns:
         value = _normalize_text(row.get(column_name))
         if value:
