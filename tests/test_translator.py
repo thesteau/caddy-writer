@@ -119,10 +119,55 @@ def test_header_up_and_skip_verify_share_proxy_block() -> None:
     )
 
 
-def test_blank_header_up_does_not_create_proxy_block() -> None:
+def test_host_override_and_via_removal_share_proxy_block() -> None:
     prepared = _prepare(
-        "host,upstream,tls_mode,header_up\n"
-        "plain.home,http://192.168.1.20:8080,internal,\n"
+        "host,upstream,tls_mode,header_up,header_up_remove\n"
+        "duo3.home,http://192.168.5.15,internal,192.168.5.15,Via\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    assert result == (
+        "duo3.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy http://192.168.5.15 {\n"
+        "        header_up -Via\n"
+        "        header_up Host 192.168.5.15\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("removed_headers", "expected_headers"),
+    [
+        ("Via", "        header_up -Via\n"),
+        (" Via   X-Debug ", "        header_up -Via\n        header_up -X-Debug\n"),
+    ],
+)
+def test_header_removal_without_host_override(removed_headers: str, expected_headers: str) -> None:
+    prepared = _prepare(
+        "host,upstream,header_up_remove\n"
+        f"duo3.home,http://192.168.5.15,{removed_headers}\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    assert result == (
+        "duo3.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy http://192.168.5.15 {\n"
+        f"{expected_headers}"
+        "    }\n"
+        "}\n"
+    )
+
+
+@pytest.mark.parametrize("blank_headers", ["", "   "])
+def test_blank_header_up_does_not_create_proxy_block(blank_headers: str) -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,header_up,header_up_remove\n"
+        f"plain.home,http://192.168.1.20:8080,internal,{blank_headers},{blank_headers}\n"
     )
 
     result = translator.render_caddyfile(prepared.active_df)

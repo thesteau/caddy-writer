@@ -74,6 +74,34 @@ def test_upload_translation_returns_json_and_writes_output(work_tmpdir: Path) ->
     assert (work_tmpdir / "deploy-target" / "Caddyfile").exists()
 
 
+def test_sample_upload_preserves_via_removal_and_host_override(work_tmpdir: Path) -> None:
+    client = build_client(work_tmpdir)
+    sample_csv = Path(__file__).resolve().parents[1] / "sample" / "sample.csv"
+
+    response = client.post(
+        "/translate/upload",
+        headers={"accept": "application/json"},
+        files={"csv_file": ("sample.csv", sample_csv.read_bytes(), "text/csv")},
+        data={"preview_only": "false"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    expected_block = (
+        "duo3.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy http://192.168.5.15 {\n"
+        "        header_up -Via\n"
+        "        header_up Host 192.168.5.15\n"
+        "    }\n"
+        "}\n"
+    )
+    assert expected_block in payload["generated_text"]
+    assert payload["copied_to_caddy_dir"] is True
+    assert (work_tmpdir / "output" / "Caddyfile.generated").read_text(encoding="utf-8") == payload["generated_text"]
+    assert (work_tmpdir / "deploy-target" / "Caddyfile").read_text(encoding="utf-8") == payload["generated_text"]
+
+
 def test_url_translation_works(work_tmpdir: Path, monkeypatch) -> None:
     client = build_client(work_tmpdir)
 

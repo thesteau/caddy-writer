@@ -60,6 +60,7 @@ Optional columns:
 - `redirect`
 - `transport_versions`
 - `header_up`
+- `header_up_remove`
 - `header_up_origin`
 - `header_up_x_forwarded_host`
 - `header_up_x_forwarded_port`
@@ -81,6 +82,7 @@ Notes:
 - `redirect=true` emits `redir <target>{uri} permanent` instead of `reverse_proxy`.
 - `transport_versions`, when non-empty, emits `versions <value>` inside `transport http`.
 - `header_up` emits `header_up Host <value>`.
+- `header_up_remove` accepts space-separated header names, such as `Via` or `Via X-Debug`, and emits one `header_up -<name>` directive per name. Enter names without the leading `-`.
 - `header_up_origin` emits `header_up Origin <value>`.
 - `header_up_x_forwarded_host` emits `header_up X-Forwarded-Host <value>`.
 - `header_up_x_forwarded_port` emits `header_up X-Forwarded-Port <value>`.
@@ -91,6 +93,25 @@ Notes:
 Boolean true values: `true`, `1`, `yes`, `y`, `on`
 
 Boolean false values: `false`, `0`, `no`, `n`, `off`, empty
+
+For `duo3.home`, set `header_up=192.168.5.15` and `header_up_remove=Via` to remove `Via` and override `Host` together:
+
+```csv
+host,upstream,tls_mode,header_up,header_up_remove
+duo3.home,http://192.168.5.15,internal,192.168.5.15,Via
+```
+
+This generates:
+
+```caddyfile
+duo3.home {
+    tls internal
+    reverse_proxy http://192.168.5.15 {
+        header_up -Via
+        header_up Host 192.168.5.15
+    }
+}
+```
 
 ## Environment variables
 
