@@ -296,3 +296,176 @@ def test_copy_generated_file_to_caddy_dir(work_tmpdir) -> None:
 
     assert copied_path.endswith("Caddyfile")
     assert (work_tmpdir / "deploy-target" / "Caddyfile").read_text(encoding="utf-8") == "example.home {\n}\n"
+
+
+ROMM_BLOCK = (
+    "romm.home {\n"
+    "    tls internal\n"
+    "\n"
+    "    redir /streaming /streaming/ 308\n"
+    "\n"
+    "    handle /streaming/* {\n"
+    "        reverse_proxy http://192.168.1.30:3067\n"
+    "    }\n"
+    "\n"
+    "    handle {\n"
+    "        reverse_proxy http://10.10.1.2:7331\n"
+    "    }\n"
+    "}\n"
+)
+
+
+@pytest.mark.parametrize("path", ["/streaming", "/streaming/", "/streaming/*", " /streaming "])
+def test_path_routes_merge_into_one_site(path: str) -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,path\n"
+        f"romm.home,http://192.168.1.30:3067,internal,{path}\n"
+        "romm.home,http://10.10.1.2:7331,internal,\n"
+    )
+
+    assert translator.render_caddyfile(prepared.active_df) == ROMM_BLOCK
+    assert prepared.warnings == []
+
+
+def test_default_route_is_written_last_and_site_keeps_first_position() -> None:
+    prepared = _prepare(
+        "host,upstream,path\n"
+        "romm.home,http://10.10.1.2:7331,\n"
+        "other.home,http://192.168.1.9,\n"
+        "ROMM.home,http://192.168.1.30:3067,/streaming\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    assert result == ROMM_BLOCK + "\n" + (
+        "other.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy http://192.168.1.9\n"
+        "}\n"
+    )
+
+
+def test_route_options_apply_per_row_and_tls_line_is_optional() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,skip_verify,redirect,header_up_remove,path\n"
+        "app.home,https://192.168.1.2,public,true,false,Via,/api\n"
+        "app.home,http://192.168.1.3,public,false,true,,/old\n"
+        "app.home,http://192.168.1.4,public,false,false,,\n"
+    )
+
+    result = translator.render_caddyfile(prepared.active_df)
+
+    assert result == (
+        "app.home {\n"
+        "    redir /api /api/ 308\n"
+        "    redir /old /old/ 308\n"
+        "\n"
+        "    handle /api/* {\n"
+        "        reverse_proxy https://192.168.1.2 {\n"
+        "            transport http {\n"
+        "                tls_insecure_skip_verify\n"
+        "            }\n"
+        "            header_up -Via\n"
+        "        }\n"
+        "    }\n"
+        "\n"
+        "    handle /old/* {\n"
+        "        redir http://192.168.1.3{uri} permanent\n"
+        "    }\n"
+        "\n"
+        "    handle {\n"
+        "        reverse_proxy http://192.168.1.4\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+@pytest.mark.parametrize("path", ["streaming", "/", "/*", "/a b", "/a*", "/{host}", "/a#b"])
+def test_invalid_path_is_rejected(path: str) -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare(f"host,upstream,path\nromm.home,http://10.10.1.2,{path}\n")
+
+    assert [(error.row_number, error.column) for error in exc_info.value.errors] == [(2, "path")]
+
+
+@pytest.mark.parametrize(
+    ("first_path", "second_path", "message"),
+    [
+        ("", "", "already has a default route"),
+        ("/streaming", "/streaming/", "already has a route for /streaming"),
+    ],
+)
+def test_duplicate_route_is_rejected(first_path: str, second_path: str, message: str) -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare(
+            "host,upstream,path\n"
+            f"romm.home,http://10.10.1.2,{first_path}\n"
+            f"ROMM.home,http://10.10.1.3,{second_path}\n"
+        )
+
+    errors = exc_info.value.errors
+    assert [(error.row_number, error.column) for error in errors] == [(3, "path")]
+    assert message in errors[0].message
+
+
+def test_disabled_rows_do_not_conflict() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,enabled\n"
+        "app.home,http://192.168.1.2,public,false\n"
+        "app.home,http://192.168.1.3,internal,true\n"
+    )
+
+    assert translator.render_caddyfile(prepared.active_df) == (
+        "app.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy http://192.168.1.3\n"
+        "}\n"
+    )
+
+
+def test_conflicting_tls_mode_for_host_is_rejected() -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare(
+            "host,upstream,tls_mode,path\n"
+            "romm.home,http://10.10.1.2,internal,/streaming\n"
+            "romm.home,http://10.10.1.3,public,\n"
+        )
+
+    assert [(error.row_number, error.column) for error in exc_info.value.errors] == [(3, "tls_mode")]
+
+
+def test_http_only_row_stays_a_separate_site() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode\n"
+        "app.home,http://192.168.1.2,internal\n"
+        "app.home,http://192.168.1.3,off\n"
+    )
+
+    assert translator.render_caddyfile(prepared.active_df) == (
+        "app.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy http://192.168.1.2\n"
+        "}\n"
+        "\n"
+        "http://app.home {\n"
+        "    reverse_proxy http://192.168.1.3\n"
+        "}\n"
+    )
+
+
+def test_path_routes_without_default_route_warn() -> None:
+    prepared = _prepare(
+        "host,upstream,enabled,path\n"
+        "romm.home,http://192.168.1.30:3067,true,/streaming\n"
+        "romm.home,http://10.10.1.2:7331,false,\n"
+    )
+
+    assert "Host romm.home has no default route" in " ".join(prepared.warnings)
+    assert "handle {" not in translator.render_caddyfile(prepared.active_df)
+
+
+def test_sample_csv_renders_path_routed_host() -> None:
+    sample_csv = Path(__file__).resolve().parents[1] / "sample" / "sample.csv"
+    prepared = translator.prepare_dataframe(pd.read_csv(sample_csv))
+
+    assert ROMM_BLOCK in translator.render_caddyfile(prepared.active_df)
