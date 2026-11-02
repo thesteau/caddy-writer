@@ -27,6 +27,7 @@ SUPPORTED_COLUMNS = {
     "header_up_x_forwarded_port",
     "header_up_x_forwarded_proto",
     "header_up_x_real_ip",
+    "path",
     "notes",
     "enabled",
 }
@@ -36,6 +37,7 @@ BOOLEAN_FALSE = {"false", "0", "no", "n", "off", ""}
 TLS_MODES = {"internal", "public", "off"}
 UPSTREAM_SCHEMES = {"http", "https"}
 GOOGLE_SHEETS_RE = re.compile(r"https?://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)")
+ROUTE_PATH_RE = re.compile(r"(/[A-Za-z0-9._~%-]+)+")
 
 
 @dataclass
@@ -151,6 +153,7 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized["header_up_x_forwarded_port"] = normalized["header_up_x_forwarded_port"].map(_normalize_text)
     normalized["header_up_x_forwarded_proto"] = normalized["header_up_x_forwarded_proto"].map(_normalize_text)
     normalized["header_up_x_real_ip"] = normalized["header_up_x_real_ip"].map(_normalize_text)
+    normalized["path"] = normalized["path"].map(_normalize_route_path)
     normalized["enabled"] = normalized["enabled"].map(lambda value: _parse_bool(value, default=True))
     normalized["upstream_port"] = normalized["upstream_port"].map(_parse_port)
 
@@ -181,6 +184,7 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
         redirect = row.get("redirect")
         upstream_port = row.get("upstream_port")
         upstream_scheme = row.get("upstream_scheme")
+        path = _normalize_text(row.get("path"))
 
         if not host:
             errors.append(ValidationError(row_number, "host", "Host is required."))
@@ -234,6 +238,15 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
                 )
             )
 
+        if path and not ROUTE_PATH_RE.fullmatch(path):
+            errors.append(
+                ValidationError(
+                    row_number,
+                    "path",
+                    "path must look like /streaming. Leave it blank for the host's default route.",
+                )
+            )
+
         if upstream:
             if not _is_valid_upstream_url(upstream):
                 errors.append(
@@ -259,6 +272,43 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
                         )
                     )
 
+    errors.extend(_validate_site_routes(df))
+    return errors
+
+
+def _validate_site_routes(df: pd.DataFrame) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    site_tls_modes: dict[tuple[str, bool], Any] = {}
+    seen_routes: set[tuple[tuple[str, bool], str | None]] = set()
+
+    for _, row in df.iterrows():
+        if row.get("enabled") is not True or not row.get("host"):
+            continue
+
+        row_number = int(row[INTERNAL_ROW_COLUMN])
+        host = row["host"]
+        site_key = _site_key(row)
+        path = _normalize_text(row.get("path"))
+
+        if site_tls_modes.setdefault(site_key, row["tls_mode"]) != row["tls_mode"]:
+            errors.append(
+                ValidationError(
+                    row_number,
+                    "tls_mode",
+                    f"tls_mode must match the other rows for host {host}.",
+                )
+            )
+
+        route = (site_key, path)
+        if route in seen_routes:
+            message = (
+                f"Host {host} already has a route for {path}."
+                if path
+                else f"Host {host} already has a default route. Set a path or disable this row."
+            )
+            errors.append(ValidationError(row_number, "path", message))
+        seen_routes.add(route)
+
     return errors
 
 
@@ -275,6 +325,11 @@ def prepare_dataframe(df: pd.DataFrame) -> PreparedTranslation:
         warnings.append(f"Skipped {skipped_row_count} disabled row(s).")
     if active_df.empty:
         raise CSVError("Empty output after filtering disabled rows.")
+    for rows in _group_rows_by_site(active_df):
+        if all(_normalize_text(row.get("path")) for row in rows):
+            warnings.append(
+                f"Host {rows[0]['host']} has no default route, so requests outside its paths get an empty response."
+            )
 
     return PreparedTranslation(
         normalized_df=normalized_df,
@@ -285,46 +340,72 @@ def prepare_dataframe(df: pd.DataFrame) -> PreparedTranslation:
 
 
 def render_caddyfile(df: pd.DataFrame) -> str:
-    blocks: list[str] = []
-    for _, row in df.iterrows():
-        host = str(row["host"])
-        upstream_url = build_upstream_url(row)
-        tls_mode = str(row["tls_mode"])
-        skip_verify = bool(row["skip_verify"])
-        redirect = bool(row["redirect"])
-        transport_versions = _normalize_text(row.get("transport_versions"))
-        header_up_lines = _build_header_up_lines(row)
-        parsed_upstream = urlparse(upstream_url)
-        has_transport_block = bool(transport_versions) or (parsed_upstream.scheme == "https" and skip_verify)
-        has_proxy_block = has_transport_block or bool(header_up_lines)
-
-        site_label = f"http://{host}" if tls_mode == "off" else host
-        lines = [f"{site_label} {{"]
-
-        if tls_mode == "internal":
-            lines.append("    tls internal")
-
-        if redirect:
-            lines.append(f"    redir {upstream_url}{{uri}} permanent")
-        elif has_proxy_block:
-            lines.append(f"    reverse_proxy {upstream_url} {{")
-            if has_transport_block:
-                lines.append("        transport http {")
-                if transport_versions:
-                    lines.append(f"            versions {transport_versions}")
-                if parsed_upstream.scheme == "https" and skip_verify:
-                    lines.append("            tls_insecure_skip_verify")
-                lines.append("        }")
-            for header_up_line in header_up_lines:
-                lines.append(f"        {header_up_line}")
-            lines.append("    }")
-        else:
-            lines.append(f"    reverse_proxy {upstream_url}")
-
-        lines.append("}")
-        blocks.append("\n".join(lines))
-
+    blocks = [_render_site(rows) for rows in _group_rows_by_site(df)]
     return "\n\n".join(blocks).strip() + "\n"
+
+
+def _site_key(row: pd.Series) -> tuple[str, bool]:
+    return str(row["host"]).lower(), row["tls_mode"] == "off"
+
+
+def _group_rows_by_site(df: pd.DataFrame) -> list[list[pd.Series]]:
+    sites: dict[tuple[str, bool], list[pd.Series]] = {}
+    for _, row in df.iterrows():
+        sites.setdefault(_site_key(row), []).append(row)
+    return list(sites.values())
+
+
+def _render_site(rows: list[pd.Series]) -> str:
+    host = str(rows[0]["host"])
+    tls_mode = str(rows[0]["tls_mode"])
+    site_label = f"http://{host}" if tls_mode == "off" else host
+    tls_lines = ["tls internal"] if tls_mode == "internal" else []
+
+    path_rows = [row for row in rows if _normalize_text(row.get("path"))]
+    if path_rows:
+        default_rows = [row for row in rows if not _normalize_text(row.get("path"))]
+        sections = [tls_lines] if tls_lines else []
+        sections.append([f"redir {row['path']} {row['path']}/ 308" for row in path_rows])
+        for row in path_rows:
+            sections.append(_handle_section(f"handle {row['path']}/* {{", row))
+        for row in default_rows:
+            sections.append(_handle_section("handle {", row))
+        body = [line for index, section in enumerate(sections) for line in ([""] if index else []) + section]
+    else:
+        body = tls_lines + _build_route_lines(rows[0])
+
+    indented = [f"    {line}" if line else "" for line in body]
+    return "\n".join([f"{site_label} {{", *indented, "}"])
+
+
+def _handle_section(opening_line: str, row: pd.Series) -> list[str]:
+    return [opening_line, *(f"    {line}" for line in _build_route_lines(row)), "}"]
+
+
+def _build_route_lines(row: pd.Series) -> list[str]:
+    upstream_url = build_upstream_url(row)
+    skip_verify = bool(row["skip_verify"])
+    transport_versions = _normalize_text(row.get("transport_versions"))
+    header_up_lines = _build_header_up_lines(row)
+    parsed_upstream = urlparse(upstream_url)
+    has_transport_block = bool(transport_versions) or (parsed_upstream.scheme == "https" and skip_verify)
+
+    if bool(row["redirect"]):
+        return [f"redir {upstream_url}{{uri}} permanent"]
+    if not has_transport_block and not header_up_lines:
+        return [f"reverse_proxy {upstream_url}"]
+
+    lines = [f"reverse_proxy {upstream_url} {{"]
+    if has_transport_block:
+        lines.append("    transport http {")
+        if transport_versions:
+            lines.append(f"        versions {transport_versions}")
+        if parsed_upstream.scheme == "https" and skip_verify:
+            lines.append("        tls_insecure_skip_verify")
+        lines.append("    }")
+    lines.extend(f"    {header_up_line}" for header_up_line in header_up_lines)
+    lines.append("}")
+    return lines
 
 
 def build_upstream_url(row: pd.Series) -> str:
@@ -382,6 +463,13 @@ def _normalize_address(value: Any) -> str | None:
     if text is None:
         return None
     return text.rstrip("/") or None
+
+
+def _normalize_route_path(value: Any) -> str | None:
+    text = _normalize_text(value)
+    if text is None:
+        return None
+    return text.removesuffix("/*").rstrip("/") or "/"
 
 
 def _normalize_scheme(value: Any) -> str:
