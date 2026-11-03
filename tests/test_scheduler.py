@@ -138,6 +138,41 @@ def test_periodic_sync_waits_12_hours_and_recovers_from_failure(settings, monkey
     assert "Temporary fetch failure" in caplog.text
 
 
+def test_periodic_sync_logs_validation_details(settings, monkeypatch, caplog):
+    saved_source.save_url("https://example.com/saved.csv", settings)
+    live = settings.caddy_output_dir / "Caddyfile"
+    live.write_text("existing config")
+    waits = []
+
+    async def advance_timer(waiter, timeout):
+        waiter.close()
+        waits.append(timeout)
+        if len(waits) == 1:
+            raise TimeoutError
+
+    monkeypatch.setattr(translator, "parse_csv_url", lambda url: translator.parse_csv_upload(io.StringIO(
+        "host,upstream,\nsvc.home,,oops\n",
+    )))
+    monkeypatch.setattr(scheduler.asyncio, "wait_for", advance_timer)
+    asyncio.run(scheduler.run_periodic_sync(settings, asyncio.Event()))
+
+    assert "column C: Has data but no header." in caplog.text
+    assert "Row 2 [upstream]: Either upstream or upstream_host is required." in caplog.text
+    assert live.read_text() == "existing config"
+
+
+def test_sync_logs_ignored_blank_cells(settings, monkeypatch, caplog):
+    saved_source.save_url("https://example.com/saved.csv", settings)
+    monkeypatch.setattr(translator, "parse_csv_url", lambda url: translator.parse_csv_upload(io.StringIO(
+        "host,upstream,\n,,\nsvc.home,http://localhost:8080,\n",
+    )))
+
+    scheduler.sync_saved_source(settings)
+
+    assert "Ignored 1 empty column(s) with no header." in caplog.text
+    assert "Ignored 1 empty row(s)." in caplog.text
+
+
 def test_lifespan_starts_timer_and_stops_it_on_shutdown(settings, monkeypatch):
     monkeypatch.setattr(main, "get_settings", lambda: settings)
     saved_source.save_url("https://example.com/saved.csv", settings)

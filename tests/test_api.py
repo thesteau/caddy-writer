@@ -74,6 +74,35 @@ def test_upload_translation_returns_json_and_writes_output(work_tmpdir: Path) ->
     assert (work_tmpdir / "deploy-target" / "Caddyfile").exists()
 
 
+def test_upload_shows_warning_for_ignored_blank_cells(work_tmpdir: Path) -> None:
+    client = build_client(work_tmpdir)
+
+    response = client.post(
+        "/translate/upload",
+        headers={"accept": "application/json"},
+        files={"csv_file": ("sheet.csv", b"host,upstream,,\n,,,\nsvc.home,http://localhost:8080,,\n", "text/csv")},
+        data={"preview_only": "true"},
+    )
+
+    assert response.status_code == 200
+    warnings = response.json()["warnings"]
+    assert "Ignored 2 empty column(s) with no header." in warnings
+    assert "Ignored 1 empty row(s)." in warnings
+
+
+def test_upload_shows_error_for_headerless_column_with_data(work_tmpdir: Path) -> None:
+    client = build_client(work_tmpdir)
+
+    response = client.post(
+        "/translate/upload",
+        files={"csv_file": ("sheet.csv", b"host,upstream,\nsvc.home,http://localhost:8080,oops\n", "text/csv")},
+        data={"preview_only": "true"},
+    )
+
+    assert response.status_code == 400
+    assert "column C: Has data but no header." in response.text
+
+
 def test_sample_upload_preserves_via_removal_and_host_override(work_tmpdir: Path) -> None:
     client = build_client(work_tmpdir)
     sample_csv = Path(__file__).resolve().parents[1] / "sample" / "sample.csv"

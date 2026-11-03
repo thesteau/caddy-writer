@@ -27,7 +27,7 @@ SUPPORTED_COLUMNS = {
     "header_up_x_forwarded_port",
     "header_up_x_forwarded_proto",
     "header_up_x_real_ip",
-    "path",
+    "path_routes",
     "notes",
     "enabled",
 }
@@ -38,6 +38,7 @@ TLS_MODES = {"internal", "public", "off"}
 UPSTREAM_SCHEMES = {"http", "https"}
 GOOGLE_SHEETS_RE = re.compile(r"https?://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)")
 ROUTE_PATH_RE = re.compile(r"(/[A-Za-z0-9._~%-]+)+")
+HEADERLESS_COLUMN_RE = re.compile(r"(unnamed: \d+)?")
 
 
 @dataclass
@@ -45,6 +46,11 @@ class ValidationError:
     row_number: int | None
     column: str
     message: str
+
+    def __str__(self) -> str:
+        if self.row_number is None:
+            return f"{self.column}: {self.message}"
+        return f"Row {self.row_number} [{self.column}]: {self.message}"
 
 
 @dataclass
@@ -61,7 +67,8 @@ class CSVError(ValueError):
 
 class CSVValidationException(CSVError):
     def __init__(self, errors: list[ValidationError]):
-        super().__init__("CSV validation failed.")
+        # Scheduled updates have no page to show details on, so logs rely on this message.
+        super().__init__(f"CSV validation failed: {'; '.join(str(error) for error in errors)}")
         self.errors = errors
 
 
@@ -120,14 +127,30 @@ def build_google_sheets_csv_url(url: str) -> str:
 
 
 def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    normalized = df.copy()
-    normalized.columns = [str(column).strip().lower() for column in normalized.columns]
+    # Spreadsheet exports can pad a sheet with empty cells, which aren't mistakes worth failing on.
+    has_data = df.map(lambda value: _normalize_cell(value) is not None)
+    rows_with_data = has_data.any(axis=1).tolist()
+    columns_with_data = has_data.any(axis=0).tolist()
+    headers = [str(column).strip().lower() for column in df.columns]
+    named_columns = [not HEADERLESS_COLUMN_RE.fullmatch(header) for header in headers]
+
+    normalized = df.iloc[rows_with_data, named_columns].copy()
+    normalized.columns = [header for header, named in zip(headers, named_columns) if named]
     unsupported_columns = [column for column in normalized.columns if column not in SUPPORTED_COLUMNS]
     duplicate_columns = list(pd.Index(normalized.columns)[pd.Index(normalized.columns).duplicated()])
 
     normalized.attrs["unsupported_columns"] = unsupported_columns
     normalized.attrs["duplicate_columns"] = duplicate_columns
-    normalized[INTERNAL_ROW_COLUMN] = range(2, len(normalized) + 2)
+    normalized.attrs["headerless_columns"] = [
+        _column_letter(position)
+        for position, (named, with_data) in enumerate(zip(named_columns, columns_with_data), start=1)
+        if with_data and not named
+    ]
+    normalized.attrs["ignored_column_count"] = sum(
+        not named and not with_data for named, with_data in zip(named_columns, columns_with_data)
+    )
+    normalized.attrs["ignored_row_count"] = rows_with_data.count(False)
+    normalized[INTERNAL_ROW_COLUMN] = [index + 2 for index, with_data in enumerate(rows_with_data) if with_data]
 
     for column in normalized.columns:
         if column == INTERNAL_ROW_COLUMN:
@@ -153,7 +176,7 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     normalized["header_up_x_forwarded_port"] = normalized["header_up_x_forwarded_port"].map(_normalize_text)
     normalized["header_up_x_forwarded_proto"] = normalized["header_up_x_forwarded_proto"].map(_normalize_text)
     normalized["header_up_x_real_ip"] = normalized["header_up_x_real_ip"].map(_normalize_text)
-    normalized["path"] = normalized["path"].map(_normalize_route_path)
+    normalized["path_routes"] = normalized["path_routes"].map(_normalize_text)
     normalized["enabled"] = normalized["enabled"].map(lambda value: _parse_bool(value, default=True))
     normalized["upstream_port"] = normalized["upstream_port"].map(_parse_port)
 
@@ -168,6 +191,11 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
 
     for column in df.attrs.get("duplicate_columns", []):
         errors.append(ValidationError(None, column, "Duplicate column name."))
+
+    for column in df.attrs.get("headerless_columns", []):
+        errors.append(
+            ValidationError(None, f"column {column}", "Has data but no header. Add a header or clear the column.")
+        )
 
     if df.empty:
         errors.append(ValidationError(None, "csv", "CSV contains no data rows."))
@@ -184,7 +212,6 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
         redirect = row.get("redirect")
         upstream_port = row.get("upstream_port")
         upstream_scheme = row.get("upstream_scheme")
-        path = _normalize_text(row.get("path"))
 
         if not host:
             errors.append(ValidationError(row_number, "host", "Host is required."))
@@ -238,14 +265,20 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
                 )
             )
 
-        if path and not ROUTE_PATH_RE.fullmatch(path):
-            errors.append(
-                ValidationError(
-                    row_number,
-                    "path",
-                    "path must look like /streaming. Leave it blank for the host's default route.",
+        for route_path, route_upstream in _parse_path_routes(row.get("path_routes")):
+            if (
+                not route_path
+                or not ROUTE_PATH_RE.fullmatch(route_path)
+                or not route_upstream
+                or not _is_valid_upstream_url(route_upstream)
+            ):
+                errors.append(
+                    ValidationError(
+                        row_number,
+                        "path_routes",
+                        "path_routes entries must look like /streaming=http://192.168.1.30:3067.",
+                    )
                 )
-            )
 
         if upstream:
             if not _is_valid_upstream_url(upstream):
@@ -278,8 +311,7 @@ def validate_dataframe(df: pd.DataFrame) -> list[ValidationError]:
 
 def _validate_site_routes(df: pd.DataFrame) -> list[ValidationError]:
     errors: list[ValidationError] = []
-    site_tls_modes: dict[tuple[str, bool], Any] = {}
-    seen_routes: set[tuple[tuple[str, bool], str | None]] = set()
+    seen_sites: set[tuple[str, bool]] = set()
 
     for _, row in df.iterrows():
         if row.get("enabled") is not True or not row.get("host"):
@@ -288,26 +320,24 @@ def _validate_site_routes(df: pd.DataFrame) -> list[ValidationError]:
         row_number = int(row[INTERNAL_ROW_COLUMN])
         host = row["host"]
         site_key = _site_key(row)
-        path = _normalize_text(row.get("path"))
 
-        if site_tls_modes.setdefault(site_key, row["tls_mode"]) != row["tls_mode"]:
+        if site_key in seen_sites:
             errors.append(
                 ValidationError(
                     row_number,
-                    "tls_mode",
-                    f"tls_mode must match the other rows for host {host}.",
+                    "host",
+                    f"Host {host} already has a row. Add this route to its path_routes or disable this row.",
                 )
             )
+        seen_sites.add(site_key)
 
-        route = (site_key, path)
-        if route in seen_routes:
-            message = (
-                f"Host {host} already has a route for {path}."
-                if path
-                else f"Host {host} already has a default route. Set a path or disable this row."
-            )
-            errors.append(ValidationError(row_number, "path", message))
-        seen_routes.add(route)
+        seen_paths: set[str | None] = set()
+        for path, _ in _parse_path_routes(row.get("path_routes")):
+            if path and path in seen_paths:
+                errors.append(
+                    ValidationError(row_number, "path_routes", f"Host {host} already has a route for {path}.")
+                )
+            seen_paths.add(path)
 
     return errors
 
@@ -323,13 +353,12 @@ def prepare_dataframe(df: pd.DataFrame) -> PreparedTranslation:
     warnings: list[str] = []
     if skipped_row_count:
         warnings.append(f"Skipped {skipped_row_count} disabled row(s).")
+    if normalized_df.attrs["ignored_column_count"]:
+        warnings.append(f"Ignored {normalized_df.attrs['ignored_column_count']} empty column(s) with no header.")
+    if normalized_df.attrs["ignored_row_count"]:
+        warnings.append(f"Ignored {normalized_df.attrs['ignored_row_count']} empty row(s).")
     if active_df.empty:
         raise CSVError("Empty output after filtering disabled rows.")
-    for rows in _group_rows_by_site(active_df):
-        if all(_normalize_text(row.get("path")) for row in rows):
-            warnings.append(
-                f"Host {rows[0]['host']} has no default route, so requests outside its paths get an empty response."
-            )
 
     return PreparedTranslation(
         normalized_df=normalized_df,
@@ -340,7 +369,7 @@ def prepare_dataframe(df: pd.DataFrame) -> PreparedTranslation:
 
 
 def render_caddyfile(df: pd.DataFrame) -> str:
-    blocks = [_render_site(rows) for rows in _group_rows_by_site(df)]
+    blocks = [_render_site(row) for _, row in df.iterrows()]
     return "\n\n".join(blocks).strip() + "\n"
 
 
@@ -348,38 +377,34 @@ def _site_key(row: pd.Series) -> tuple[str, bool]:
     return str(row["host"]).lower(), row["tls_mode"] == "off"
 
 
-def _group_rows_by_site(df: pd.DataFrame) -> list[list[pd.Series]]:
-    sites: dict[tuple[str, bool], list[pd.Series]] = {}
-    for _, row in df.iterrows():
-        sites.setdefault(_site_key(row), []).append(row)
-    return list(sites.values())
+def _parse_path_routes(value: Any) -> list[tuple[str | None, str | None]]:
+    entries = (entry.partition("=") for entry in (_normalize_text(value) or "").split())
+    return [(_normalize_route_path(path), _normalize_address(upstream)) for path, _, upstream in entries]
 
 
-def _render_site(rows: list[pd.Series]) -> str:
-    host = str(rows[0]["host"])
-    tls_mode = str(rows[0]["tls_mode"])
+def _render_site(row: pd.Series) -> str:
+    host = str(row["host"])
+    tls_mode = str(row["tls_mode"])
     site_label = f"http://{host}" if tls_mode == "off" else host
     tls_lines = ["tls internal"] if tls_mode == "internal" else []
 
-    path_rows = [row for row in rows if _normalize_text(row.get("path"))]
-    if path_rows:
-        default_rows = [row for row in rows if not _normalize_text(row.get("path"))]
+    path_routes = _parse_path_routes(row.get("path_routes"))
+    if path_routes:
         sections = [tls_lines] if tls_lines else []
-        sections.append([f"redir {row['path']} {row['path']}/ 308" for row in path_rows])
-        for row in path_rows:
-            sections.append(_handle_section(f"handle {row['path']}/* {{", row))
-        for row in default_rows:
-            sections.append(_handle_section("handle {", row))
+        sections.append([f"redir {path} {path}/ 308" for path, _ in path_routes])
+        for path, upstream in path_routes:
+            sections.append(_handle_section(f"handle {path}/* {{", [f"reverse_proxy {upstream}"]))
+        sections.append(_handle_section("handle {", _build_route_lines(row)))
         body = [line for index, section in enumerate(sections) for line in ([""] if index else []) + section]
     else:
-        body = tls_lines + _build_route_lines(rows[0])
+        body = tls_lines + _build_route_lines(row)
 
     indented = [f"    {line}" if line else "" for line in body]
     return "\n".join([f"{site_label} {{", *indented, "}"])
 
 
-def _handle_section(opening_line: str, row: pd.Series) -> list[str]:
-    return [opening_line, *(f"    {line}" for line in _build_route_lines(row)), "}"]
+def _handle_section(opening_line: str, route_lines: list[str]) -> list[str]:
+    return [opening_line, *(f"    {line}" for line in route_lines), "}"]
 
 
 def _build_route_lines(row: pd.Series) -> list[str]:
@@ -439,6 +464,14 @@ def _build_header_up_lines(row: pd.Series) -> list[str]:
         if value:
             lines.append(f"header_up {header_name} {value}")
     return lines
+
+
+def _column_letter(position: int) -> str:
+    letters = ""
+    while position:
+        position, remainder = divmod(position - 1, 26)
+        letters = chr(ord("A") + remainder) + letters
+    return letters
 
 
 def _normalize_cell(value: Any) -> Any:

@@ -34,7 +34,7 @@ def render_error(request: Request, exc: Exception) -> Response:
     details: list[str] = []
 
     if isinstance(exc, translator.CSVValidationException):
-        details = [_format_validation_error(error) for error in exc.errors]
+        details = [str(error) for error in exc.errors]
         message = "CSV validation failed."
     elif isinstance(exc, translator.CSVError):
         message = str(exc)
@@ -69,9 +69,3 @@ def wants_json(request: Request) -> bool:
     accept = request.headers.get("accept", "")
     content_type = request.headers.get("content-type", "")
     return "application/json" in accept or "application/json" in content_type
-
-
-def _format_validation_error(error: translator.ValidationError) -> str:
-    if error.row_number is None:
-        return f"{error.column}: {error.message}"
-    return f"Row {error.row_number} [{error.column}]: {error.message}"
