@@ -315,97 +315,17 @@ ROMM_BLOCK = (
 )
 
 
-@pytest.mark.parametrize("path", ["/streaming", "/streaming/", "/streaming/*", " /streaming "])
-def test_path_routes_merge_into_one_site(path: str) -> None:
-    prepared = _prepare(
-        "host,upstream,tls_mode,path\n"
-        f"romm.home,http://192.168.1.30:3067,internal,{path}\n"
-        "romm.home,http://10.10.1.2:7331,internal,\n"
-    )
-
-    assert translator.render_caddyfile(prepared.active_df) == ROMM_BLOCK
-    assert prepared.warnings == []
-
-
-def test_default_route_is_written_last_and_site_keeps_first_position() -> None:
-    prepared = _prepare(
-        "host,upstream,path\n"
-        "romm.home,http://10.10.1.2:7331,\n"
-        "other.home,http://192.168.1.9,\n"
-        "ROMM.home,http://192.168.1.30:3067,/streaming\n"
-    )
-
-    result = translator.render_caddyfile(prepared.active_df)
-
-    assert result == ROMM_BLOCK + "\n" + (
-        "other.home {\n"
-        "    tls internal\n"
-        "    reverse_proxy http://192.168.1.9\n"
-        "}\n"
-    )
-
-
-def test_route_options_apply_per_row_and_tls_line_is_optional() -> None:
-    prepared = _prepare(
-        "host,upstream,tls_mode,skip_verify,redirect,header_up_remove,path\n"
-        "app.home,https://192.168.1.2,public,true,false,Via,/api\n"
-        "app.home,http://192.168.1.3,public,false,true,,/old\n"
-        "app.home,http://192.168.1.4,public,false,false,,\n"
-    )
-
-    result = translator.render_caddyfile(prepared.active_df)
-
-    assert result == (
-        "app.home {\n"
-        "    redir /api /api/ 308\n"
-        "    redir /old /old/ 308\n"
-        "\n"
-        "    handle /api/* {\n"
-        "        reverse_proxy https://192.168.1.2 {\n"
-        "            transport http {\n"
-        "                tls_insecure_skip_verify\n"
-        "            }\n"
-        "            header_up -Via\n"
-        "        }\n"
-        "    }\n"
-        "\n"
-        "    handle /old/* {\n"
-        "        redir http://192.168.1.3{uri} permanent\n"
-        "    }\n"
-        "\n"
-        "    handle {\n"
-        "        reverse_proxy http://192.168.1.4\n"
-        "    }\n"
-        "}\n"
-    )
-
-
-@pytest.mark.parametrize("path", ["streaming", "/", "/*", "/a b", "/a*", "/{host}", "/a#b"])
-def test_invalid_path_is_rejected(path: str) -> None:
-    with pytest.raises(translator.CSVValidationException) as exc_info:
-        _prepare(f"host,upstream,path\nromm.home,http://10.10.1.2,{path}\n")
-
-    assert [(error.row_number, error.column) for error in exc_info.value.errors] == [(2, "path")]
-
-
-@pytest.mark.parametrize(
-    ("first_path", "second_path", "message"),
-    [
-        ("", "", "already has a default route"),
-        ("/streaming", "/streaming/", "already has a route for /streaming"),
-    ],
-)
-def test_duplicate_route_is_rejected(first_path: str, second_path: str, message: str) -> None:
+def test_duplicate_host_is_rejected() -> None:
     with pytest.raises(translator.CSVValidationException) as exc_info:
         _prepare(
-            "host,upstream,path\n"
-            f"romm.home,http://10.10.1.2,{first_path}\n"
-            f"ROMM.home,http://10.10.1.3,{second_path}\n"
+            "host,upstream\n"
+            "romm.home,http://10.10.1.2\n"
+            "ROMM.home,http://10.10.1.3\n"
         )
 
     errors = exc_info.value.errors
-    assert [(error.row_number, error.column) for error in errors] == [(3, "path")]
-    assert message in errors[0].message
+    assert [(error.row_number, error.column) for error in errors] == [(3, "host")]
+    assert "already has a row" in errors[0].message
 
 
 def test_disabled_rows_do_not_conflict() -> None:
@@ -421,17 +341,6 @@ def test_disabled_rows_do_not_conflict() -> None:
         "    reverse_proxy http://192.168.1.3\n"
         "}\n"
     )
-
-
-def test_conflicting_tls_mode_for_host_is_rejected() -> None:
-    with pytest.raises(translator.CSVValidationException) as exc_info:
-        _prepare(
-            "host,upstream,tls_mode,path\n"
-            "romm.home,http://10.10.1.2,internal,/streaming\n"
-            "romm.home,http://10.10.1.3,public,\n"
-        )
-
-    assert [(error.row_number, error.column) for error in exc_info.value.errors] == [(3, "tls_mode")]
 
 
 def test_http_only_row_stays_a_separate_site() -> None:
@@ -453,19 +362,171 @@ def test_http_only_row_stays_a_separate_site() -> None:
     )
 
 
-def test_path_routes_without_default_route_warn() -> None:
-    prepared = _prepare(
-        "host,upstream,enabled,path\n"
-        "romm.home,http://192.168.1.30:3067,true,/streaming\n"
-        "romm.home,http://10.10.1.2:7331,false,\n"
-    )
-
-    assert "Host romm.home has no default route" in " ".join(prepared.warnings)
-    assert "handle {" not in translator.render_caddyfile(prepared.active_df)
-
-
 def test_sample_csv_renders_path_routed_host() -> None:
     sample_csv = Path(__file__).resolve().parents[1] / "sample" / "sample.csv"
     prepared = translator.prepare_dataframe(pd.read_csv(sample_csv))
 
     assert ROMM_BLOCK in translator.render_caddyfile(prepared.active_df)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "/streaming=http://192.168.1.30:3067",
+        "/streaming/=http://192.168.1.30:3067/",
+        "/streaming/*=http://192.168.1.30:3067",
+    ],
+)
+def test_path_routes_column_renders_one_site_from_one_row(entry: str) -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,path_routes\n"
+        f"romm.home,http://10.10.1.2:7331,internal,{entry}\n"
+    )
+
+    assert translator.render_caddyfile(prepared.active_df) == ROMM_BLOCK
+    assert prepared.warnings == []
+    assert len(prepared.active_df.index) == 1
+
+
+def test_path_routes_entries_do_not_inherit_row_options() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,skip_verify,header_up_remove,path_routes\n"
+        "app.home,https://192.168.1.2,public,true,Via,/api=https://192.168.1.3 /ws=http://192.168.1.4\n"
+    )
+
+    assert translator.render_caddyfile(prepared.active_df) == (
+        "app.home {\n"
+        "    redir /api /api/ 308\n"
+        "    redir /ws /ws/ 308\n"
+        "\n"
+        "    handle /api/* {\n"
+        "        reverse_proxy https://192.168.1.3\n"
+        "    }\n"
+        "\n"
+        "    handle /ws/* {\n"
+        "        reverse_proxy http://192.168.1.4\n"
+        "    }\n"
+        "\n"
+        "    handle {\n"
+        "        reverse_proxy https://192.168.1.2 {\n"
+        "            transport http {\n"
+        "                tls_insecure_skip_verify\n"
+        "            }\n"
+        "            header_up -Via\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "streaming=http://10.10.1.3",
+        "/=http://10.10.1.3",
+        "/streaming",
+        "/streaming=",
+        "/streaming=ftp://10.10.1.3",
+        "=http://10.10.1.3",
+        "/*=http://10.10.1.3",
+        "/a*=http://10.10.1.3",
+        "/{host}=http://10.10.1.3",
+        "/a#b=http://10.10.1.3",
+    ],
+)
+def test_invalid_path_routes_entry_is_rejected(entry: str) -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare(f"host,upstream,path_routes\nromm.home,http://10.10.1.2,{entry}\n")
+
+    assert [(error.row_number, error.column) for error in exc_info.value.errors] == [(2, "path_routes")]
+
+
+def test_path_routes_entry_conflicting_with_same_cell_is_rejected() -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare(
+            "host,upstream,path_routes\n"
+            "romm.home,http://10.10.1.2,/streaming=http://10.10.1.3 /streaming/=http://10.10.1.4\n"
+        )
+
+    errors = exc_info.value.errors
+    assert [(error.row_number, error.column) for error in errors] == [(2, "path_routes")]
+    assert "already has a route for /streaming" in errors[0].message
+
+
+def test_path_column_is_rejected() -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare("host,upstream,path\nromm.home,http://10.10.1.2,/streaming\n")
+
+    assert [(error.row_number, error.column) for error in exc_info.value.errors] == [(None, "path")]
+
+
+def test_blank_columns_and_rows_are_ignored_with_warnings() -> None:
+    prepared = _prepare(
+        "host,upstream,tls_mode,path_routes,,,\n"
+        ",,,,,,\n"
+        "romm.home,http://10.10.1.2:7331,internal,/streaming=http://192.168.1.30:3067,,,\n"
+    )
+
+    assert translator.render_caddyfile(prepared.active_df) == ROMM_BLOCK
+    assert prepared.warnings == [
+        "Ignored 3 empty column(s) with no header.",
+        "Ignored 1 empty row(s).",
+    ]
+    assert len(prepared.normalized_df.index) == 1
+
+
+def test_whitespace_only_cells_count_as_blank() -> None:
+    prepared = _prepare("host,upstream, \n , , \napp.home,http://10.10.1.2, \n")
+
+    assert prepared.warnings == ["Ignored 1 empty column(s) with no header.", "Ignored 1 empty row(s)."]
+
+
+def test_error_row_numbers_still_match_the_sheet_after_blank_rows() -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare("host,upstream\n,\n,\nromm.home,\n")
+
+    assert [(error.row_number, error.column) for error in exc_info.value.errors] == [(4, "upstream")]
+
+
+def test_headerless_column_with_data_is_rejected_by_sheet_letter() -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare("host,upstream,,notes,\nromm.home,http://10.10.1.2,oops,RomM,\n")
+
+    errors = exc_info.value.errors
+    assert [(error.row_number, error.column) for error in errors] == [(None, "column C")]
+    assert str(errors[0]) == "column C: Has data but no header. Add a header or clear the column."
+    assert str(errors[0]) in str(exc_info.value)
+
+
+def test_empty_column_with_unsupported_header_is_still_rejected() -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare("host,upstream,upstrem\nromm.home,http://10.10.1.2,\n")
+
+    assert [(error.row_number, error.column) for error in exc_info.value.errors] == [(None, "upstrem")]
+
+
+def test_csv_with_only_blank_rows_reports_no_data() -> None:
+    with pytest.raises(translator.CSVValidationException) as exc_info:
+        _prepare("host,upstream,\n,,\n,,\n")
+
+    assert [error.column for error in exc_info.value.errors] == ["csv"]
+
+
+@pytest.mark.parametrize(("position", "letter"), [(1, "A"), (17, "Q"), (26, "Z"), (27, "AA"), (28, "AB")])
+def test_column_letter(position: int, letter: str) -> None:
+    assert translator._column_letter(position) == letter
+
+
+def test_disabled_row_ignores_its_path_routes() -> None:
+    prepared = _prepare(
+        "host,upstream,enabled,path_routes\n"
+        "romm.home,http://10.10.1.2,false,/streaming=http://10.10.1.3\n"
+        "romm.home,http://10.10.1.4,true,\n"
+    )
+
+    assert translator.render_caddyfile(prepared.active_df) == (
+        "romm.home {\n"
+        "    tls internal\n"
+        "    reverse_proxy http://10.10.1.4\n"
+        "}\n"
+    )

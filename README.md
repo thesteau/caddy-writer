@@ -66,7 +66,7 @@ Optional columns:
 - `header_up_x_forwarded_port`
 - `header_up_x_forwarded_proto`
 - `header_up_x_real_ip`
-- `path`
+- `path_routes`
 - `notes`
 - `enabled`
 
@@ -89,8 +89,10 @@ Notes:
 - `header_up_x_forwarded_port` emits `header_up X-Forwarded-Port <value>`.
 - `header_up_x_forwarded_proto` emits `header_up X-Forwarded-Proto <value>`.
 - `header_up_x_real_ip` emits `header_up X-Real-IP <value>`.
-- `path` routes part of a host to that row's upstream. See [Path routing](#path-routing).
+- `path_routes` adds path routes to a row's host, written as space-separated `<path>=<upstream>` entries. See [Path routing](#path-routing).
 - Blank values for these optional columns are ignored and produce no extra directives.
+- Completely empty rows and empty columns with no header are ignored, with a warning. A column with no header that contains data is a validation error.
+- Validation errors and warnings appear in the web page and JSON responses. Scheduled updates write them to the container logs.
 
 Boolean true values: `true`, `1`, `yes`, `y`, `on`
 
@@ -117,12 +119,11 @@ duo3.home {
 
 ## Path routing
 
-To send part of a host to a different upstream, add one row per route with the same `host`. Set `path` on each path route and leave it blank on the default route that handles everything else:
+To send part of a host to a different upstream, list the extra routes in `path_routes` as space-separated `<path>=<upstream>` entries. The row's own `upstream` handles everything else:
 
 ```csv
-host,upstream,tls_mode,path
-romm.home,http://192.168.1.30:3067,internal,/streaming
-romm.home,http://10.10.1.2:7331,internal,
+host,upstream,tls_mode,path_routes
+romm.home,http://10.10.1.2:7331,internal,/streaming=http://192.168.1.30:3067
 ```
 
 This generates:
@@ -145,11 +146,9 @@ romm.home {
 
 - `/streaming`, `/streaming/`, and `/streaming/*` all mean the same route.
 - The upstream receives the full request path, including `/streaming`.
-- `redirect`, `skip_verify`, `transport_versions`, and the `header_up` columns apply to that row's route only.
-- Rows are merged in the position of the host's first row, and the default route is always written last.
-- Enabled rows for the same host must use the same `tls_mode`, except that `tls_mode=off` rows form a separate HTTP site.
-- A host can have only one default route and one route per path. Disabled rows are ignored for these checks.
-- A host with path routes but no default route generates a warning, because Caddy answers other paths with an empty response.
+- `redirect`, `skip_verify`, `transport_versions`, and the `header_up` columns apply to the row's own `upstream` only. `path_routes` entries don't inherit them and always generate a plain `reverse_proxy`.
+- The row's own `upstream` is always written last.
+- A host can have only one enabled row and one route per path, except that a `tls_mode=off` row forms a separate HTTP site. Disabled rows are ignored for these checks.
 
 ## Environment variables
 
